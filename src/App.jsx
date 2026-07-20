@@ -9,6 +9,17 @@ const serviceData = [
   ['✚', 'Emergency Support', '24/7 assistance for urgent needs'],
 ]
 const progressCopy = ['Transcribing your question...', 'Finding the right information...', 'Preparing your answer...']
+const API_BASE_URL = 'https://popular-subheader-endnote.ngrok-free.dev'
+
+function isLikelyAudioResponse(contentType = '', contentDisposition = '') {
+  const type = contentType.toLowerCase()
+  const disposition = contentDisposition.toLowerCase()
+  return type.includes('audio/') || type.includes('video/webm') || type.includes('application/octet-stream') || disposition.includes('attachment')
+}
+
+function getConversationId(response) {
+  return response.headers.get('x-conversation-id') || response.headers.get('conversation-id') || response.headers.get('conversation_id') || ''
+}
 
 function Brand({ light = false }) {
   return <button className={`brand ${light ? 'brand-light' : ''}`} type="button"><span className="brand-mark">✚</span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
@@ -35,11 +46,11 @@ function PageShell({ page, goTo, children }) {
   return <div className="app-shell"><Sidebar page={page} goTo={goTo} /><main className="app-main">{children}</main></div>
 }
 
-function Topbar({ title, goTo }) {
-  return <div className="topbar"><button className="back" onClick={() => goTo('home')}>←</button><strong>{title}</strong><button className="info">ⓘ</button></div>
+function Topbar({ title, goTo, children }) {
+  return <div className="topbar"><button className="back" onClick={() => goTo('home')}>←</button><strong>{title}</strong><div className="topbar-actions">{children}<button className="info">ⓘ</button></div></div>
 }
 
-function VoiceChat({ goTo, addHistory }) {
+function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startNewChat }) {
   const [status, setStatus] = useState('idle')
   const [seconds, setSeconds] = useState(0)
   const [progress, setProgress] = useState(0)
@@ -80,19 +91,57 @@ function VoiceChat({ goTo, addHistory }) {
     if (!blob.size) { setError('We did not hear any audio. Please speak clearly and try again.'); setStatus('error'); return }
     const formData = new FormData()
     formData.append('file', blob, 'shenaz-question.webm')
+    formData.append('conversation_id', conversationId)
     controller.current = new AbortController()
     const timeout = setTimeout(() => controller.current?.abort(), 90000)
     try {
-      const baseUrl = 'https://popular-subheader-endnote.ngrok-free.dev'
-      const response = await fetch(`${baseUrl}/voice-chat`, { method: 'POST', body: formData, signal: controller.current.signal })
+      console.debug('Voice request', { url: `${API_BASE_URL}/voice-chat`, conversationId })
+      const response = await fetch(`${API_BASE_URL}/voice-chat`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.current.signal,
+        mode: 'cors',
+      })
       clearTimeout(timeout)
+      console.debug('Voice response status', response.status, response.statusText)
+      console.debug('Voice response headers', Array.from(response.headers.entries()))
+      const returnedConversationId = getConversationId(response)
+      console.debug('Voice conversation ID', { sent: conversationId, received: returnedConversationId })
       const contentType = response.headers.get('content-type') || ''
-      if (!response.ok || contentType.includes('application/json')) {
+      const contentDisposition = response.headers.get('content-disposition') || ''
+      if (!response.ok) {
         let message = 'We could not get your answer. Please try again.'
-        if (contentType.includes('application/json')) { const data = await response.json(); message = data.message || message }
+        const text = await response.text()
+        if (text) {
+          try {
+            const data = JSON.parse(text)
+            message = data.message || data.detail || message
+          } catch {
+            message = text || message
+          }
+        }
         throw new Error(message)
       }
-      if (!contentType.includes('audio')) throw new Error('The hospital service returned an unexpected response. Please try again.')
+      if (!conversationId && !returnedConversationId) {
+        throw new Error('The hospital service did not return a conversation ID. Please try again after the server response is updated.')
+      }
+      if (conversationId && returnedConversationId && returnedConversationId !== conversationId) {
+        throw new Error('The hospital service returned a different conversation ID. Your conversation was not continued.')
+      }
+      if (returnedConversationId) setConversationId(returnedConversationId)
+      if (!isLikelyAudioResponse(contentType, contentDisposition)) {
+        const text = await response.text()
+        let message = 'The hospital service returned an unexpected response. Please try again.'
+        if (text) {
+          try {
+            const data = JSON.parse(text)
+            message = data.message || data.detail || message
+          } catch {
+            message = text || message
+          }
+        }
+        throw new Error(message)
+      }
       const url = URL.createObjectURL(await response.blob())
       setAudioUrl(url); setStatus('playing'); addHistory({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'Answer received', url })
       const audio = new Audio(url)
@@ -106,7 +155,7 @@ function VoiceChat({ goTo, addHistory }) {
     }
   }
   const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
-  return <PageShell page="chat" goTo={goTo}><Topbar title="AI Voice Chat" goTo={goTo} /><section className={`voice-panel ${status}`}><div className="voice-heading">{status === 'idle' && <><h2>How can we help?</h2><p>Ask about appointments, hospital services, or anything else.</p></>}{status === 'recording' && <><b>{time}</b><p className="recording-text">Recording...</p></>}{status === 'processing' && <><h2>Getting your answer</h2><p>{progressCopy[progress]}</p></>}{status === 'playing' && <><h2>Here&apos;s your answer</h2><p>Listen to your personalised response.</p></>}{status === 'error' && <><h2>Let&apos;s try again</h2><p>{error}</p></>}</div>{status === 'recording' && <Wave className="wave-red" count={9} />}{status === 'processing' && <Wave className="wave-thinking" count={24} />}{status === 'playing' && <Wave className="wave-playing" count={15} />}{(status === 'idle' || status === 'error') && <button className="mic-button" onClick={status === 'error' ? reset : start}>♬</button>}{status === 'recording' && <button className="stop-button" onClick={stop}>■</button>}{status === 'playing' && <div className="player"><button onClick={() => new Audio(audioUrl).play()}>↻</button><div><i /></div><button onClick={reset}>Done</button></div>}<div className="voice-actions">{status === 'idle' && <p>Tap the microphone<br />to ask your question</p>}{status === 'recording' && <button className="text-button" onClick={cancel}>Cancel recording</button>}{status === 'processing' && <p>Please wait. This may take a few seconds.</p>}{status === 'error' && <button className="button" onClick={start}>Try again</button>}</div></section></PageShell>
+  return <PageShell page="chat" goTo={goTo}><Topbar title="AI Voice Chat" goTo={goTo}><button className="new-chat-button" onClick={startNewChat}>New Chat</button></Topbar><section className={`voice-panel ${status}`}><div className="voice-heading">{status === 'idle' && <><h2>How can we help?</h2><p>Ask about appointments, hospital services, or anything else.</p></>}{status === 'recording' && <><b>{time}</b><p className="recording-text">Recording...</p></>}{status === 'processing' && <><h2>Getting your answer</h2><p>{progressCopy[progress]}</p></>}{status === 'playing' && <><h2>Here&apos;s your answer</h2><p>Listen to your personalised response.</p></>}{status === 'error' && <><h2>Let&apos;s try again</h2><p>{error}</p></>}</div>{status === 'recording' && <Wave className="wave-red" count={9} />}{status === 'processing' && <Wave className="wave-thinking" count={24} />}{status === 'playing' && <Wave className="wave-playing" count={15} />}{(status === 'idle' || status === 'error') && <button className="mic-button" onClick={status === 'error' ? reset : start}>♬</button>}{status === 'recording' && <button className="stop-button" onClick={stop}>■</button>}{status === 'playing' && <div className="player"><button onClick={() => new Audio(audioUrl).play()}>↻</button><div><i /></div><button onClick={reset}>Done</button></div>}<div className="voice-actions">{status === 'idle' && <p>Tap the microphone<br />to ask your question</p>}{status === 'recording' && <button className="text-button" onClick={cancel}>Cancel recording</button>}{status === 'processing' && <p>Please wait. This may take a few seconds.</p>}{status === 'error' && <button className="button" onClick={start}>Try again</button>}</div></section></PageShell>
 }
 
 function Wave({ className, count }) { return <div className={`wave ${className}`}>{Array.from({ length: count }, (_, index) => <i key={index} />)}</div> }
@@ -117,8 +166,13 @@ function History({ goTo, history }) { return <PageShell page="history" goTo={goT
 function App() {
   const [page, setPage] = useState('home')
   const [history, setHistory] = useState([])
+  const [conversationId, setConversationId] = useState('')
+  const startNewChat = () => {
+    console.debug('Starting a new conversation', { previousConversationId: conversationId })
+    setConversationId('')
+  }
   if (page === 'home') return <Landing goTo={setPage} />
-  if (page === 'chat') return <VoiceChat goTo={setPage} addHistory={(item) => setHistory((previous) => [item, ...previous])} />
+  if (page === 'chat') return <VoiceChat goTo={setPage} addHistory={(item) => setHistory((previous) => [item, ...previous])} conversationId={conversationId} setConversationId={setConversationId} startNewChat={startNewChat} />
   if (page === 'services') return <Services goTo={setPage} />
   if (page === 'history') return <History goTo={setPage} history={history} />
   return <About goTo={setPage} />
