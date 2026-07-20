@@ -83,7 +83,7 @@ function VoiceChat({ goTo, addHistory }) {
     controller.current = new AbortController()
     const timeout = setTimeout(() => controller.current?.abort(), 90000)
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || ''
+      const baseUrl = 'https://popular-subheader-endnote.ngrok-free.dev'
       const response = await fetch(`${baseUrl}/voice-chat`, { method: 'POST', body: formData, signal: controller.current.signal })
       clearTimeout(timeout)
       const contentType = response.headers.get('content-type') || ''
