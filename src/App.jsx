@@ -11,6 +11,35 @@ const serviceData = [
 const progressCopy = ['Transcribing your question...', 'Finding the right information...', 'Preparing your answer...']
 const API_BASE_URL = 'https://popular-subheader-endnote.ngrok-free.dev'
 
+const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
+const actionCards = [
+  ['hospital', 'Hospital Services', 'Explore our departments and healthcare services.', 'services'],
+  ['calendar', 'Book Appointment', 'Schedule appointments quickly and easily.', 'chat'],
+]
+const benefitItems = [
+  ['shield', 'Private & Secure', 'Your data is protected and confidential.'],
+  ['clock', 'Always Available', 'Get help anytime, day or night.'],
+  ['bolt', 'Fast Assistance', 'Instant answers for your healthcare needs.'],
+]
+const waveHeights = [18, 28, 42, 56, 70, 52, 36, 48, 64, 40, 24, 34, 50, 62, 44, 30, 22]
+
+function Ic({ name, className }) {
+  const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  const shapes = {
+    mic: <g {...p}><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M6 11a6 6 0 0 0 12 0M12 17v3" /></g>,
+    shield: <path {...p} d="M12 3l7 3v5c0 4.2-3 7-7 8.5C8 18 5 15.2 5 11V6z M9.5 11.5l1.8 1.8 3.5-3.6" />,
+    phone: <path {...p} d="M6.5 3.5h3l1.5 4.5-2 1.2a11 11 0 0 0 5 5l1.2-2 4.5 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z" />,
+    calendar: <g {...p}><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M4 9.5h16M8.5 3v4M15.5 3v4M9 13l2 2 4-4" /></g>,
+    clock: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></g>,
+    bolt: <path {...p} d="M13 3L5 13h6l-1 8 8-11h-6z" />,
+    mail: <g {...p}><rect x="3.5" y="5.5" width="17" height="13" rx="2" /><path d="M4 7l8 6 8-6" /></g>,
+    pin: <g {...p}><path d="M12 21c4-4.5 6-7.6 6-10.5a6 6 0 1 0-12 0C6 13.4 8 16.5 12 21z" /><circle cx="12" cy="10.5" r="2.2" /></g>,
+    hospital: <g {...p}><path d="M4 21V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14" /><path d="M2 21h20M9 21v-5h6v5M12 5v6M9 8h6" /></g>,
+    menu: <path {...p} d="M4 7h16M4 12h16M4 17h16" />,
+  }
+  return <svg viewBox="0 0 24 24" width="1em" height="1em" className={className} aria-hidden="true">{shapes[name]}</svg>
+}
+
 function isLikelyAudioResponse(contentType = '', contentDisposition = '') {
   const type = contentType.toLowerCase()
   const disposition = contentDisposition.toLowerCase()
@@ -21,25 +50,115 @@ function getConversationId(response) {
   return response.headers.get('x-conversation-id') || response.headers.get('conversation-id') || response.headers.get('conversation_id') || ''
 }
 
-function Brand({ light = false }) {
-  return <button className={`brand ${light ? 'brand-light' : ''}`} type="button"><span className="brand-mark">✚</span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
+function Brand({ light = false, onClick }) {
+  return <button className={`brand ${light ? 'brand-light' : ''}`} type="button" onClick={onClick}><span className="brand-mark">✚</span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
 }
 
 function Header({ goTo }) {
-  return <header className="site-header"><Brand /><nav>{['Home', 'Services', 'About Us', 'Contact'].map((item) => <button className={item === 'Home' ? 'active' : ''} onClick={() => goTo(item === 'Home' ? 'home' : item === 'Services' ? 'services' : 'about')} key={item}>{item}</button>)}</nav><button className="button button-small" onClick={() => goTo('chat')}>Get Started</button></header>
+  const [menuOpen, setMenuOpen] = useState(false)
+  return (
+    <header className="site-header">
+      <Brand onClick={() => goTo('home')} />
+      <nav className={menuOpen ? 'open' : ''} aria-label="Primary">
+        {navLinks.map(([label, target], index) => (
+          <button className={index === 0 ? 'active' : ''} onClick={() => { goTo(target); setMenuOpen(false) }} key={label}>{label}</button>
+        ))}
+      </nav>
+      <button className="menu-toggle" type="button" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
+        <Ic name="menu" />
+      </button>
+      <button className="button header-cta" onClick={() => goTo('chat')}><Ic name="mic" /> Start Voice Chat</button>
+    </header>
+  )
 }
 
 function Sidebar({ page, goTo }) {
   const links = [['▣', 'Chat', 'chat'], ['◷', 'History', 'history'], ['◉', 'Help', 'about'], ['⚙', 'Settings', 'about']]
-  return <aside className="sidebar"><Brand /><div className="side-menu">{links.map(([icon, label, target]) => <button className={page === target ? 'selected' : ''} onClick={() => goTo(target)} key={label}><span>{icon}</span>{label}</button>)}</div><button className="logout">⇥<span>Logout</span></button></aside>
+  return <aside className="sidebar"><Brand onClick={() => goTo('home')} /><div className="side-menu">{links.map(([icon, label, target]) => <button className={page === target ? 'selected' : ''} onClick={() => goTo(target)} key={label}><span>{icon}</span>{label}</button>)}</div><button className="logout">⇥<span>Logout</span></button></aside>
 }
 
-function Footer() {
-  return <footer><div><Brand light /><p>Compassionate care. Connected healthcare.</p></div><div><strong>Quick Links</strong><a>Home</a><a>Services</a><a>About Us</a><a>Contact</a></div><div><strong>Resources</strong><a>FAQs</a><a>Privacy Policy</a><a>Terms & Conditions</a></div><div><strong>Contact Us</strong><a>☎ +1 (555) 123-4567</a><a>✉ info@shenazhospital.com</a><a>⌖ 123 Health Street, Wellness City</a></div></footer>
+function Footer({ goTo }) {
+  return (
+    <footer>
+      <div className="footer-main">
+        <div className="footer-brand">
+          <Brand onClick={() => goTo('home')} />
+          <p>Compassionate care. Connected healthcare.</p>
+        </div>
+        <div className="footer-col">
+          <strong>Quick Links</strong>
+          {navLinks.map(([label, target]) => <button key={label} type="button" onClick={() => goTo(target)}>{label}</button>)}
+        </div>
+        <div className="footer-col contact">
+          <strong>Contact Us</strong>
+          <span><Ic name="phone" /> +1 (555) 123-4567</span>
+          <span><Ic name="mail" /> info@shenazhospital.com</span>
+          <span><Ic name="pin" /> 123 Health Street, Wellness City</span>
+        </div>
+        <div className="footer-col copyright">
+          <p>© 2025 Shenaz Hospital.</p>
+          <p>All rights reserved.</p>
+        </div>
+      </div>
+    </footer>
+  )
+}
+
+function VoiceAssistantVisual({ onStart }) {
+  return (
+    <div className="voice-visual" aria-hidden="true">
+      <span className="deco deco-plus dp1">+</span>
+      <span className="deco deco-plus dp2">+</span>
+      <span className="deco deco-dot dd1" />
+      <span className="deco deco-dot dd2" />
+      <span className="deco deco-dot dd3" />
+      <span className="ring ring-1" />
+      <span className="ring ring-2" />
+      <span className="ring ring-3" />
+      <div className="waveform">{waveHeights.map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div>
+      <button className="voice-mic" type="button" aria-label="Start Voice Chat" onClick={onStart}><Ic name="mic" /></button>
+    </div>
+  )
 }
 
 function Landing({ goTo }) {
-  return <div className="landing"><Header goTo={goTo} /><main><section className="hero-section"><div className="hero-copy"><h1>AI Hospital<br />Contact Center</h1><p>Speak to our AI assistant for appointments, hospital information, and more.</p><div className="feature-lines">{[['♟', 'Voice First', 'Simply speak your question'], ['▣', 'Instant Assistance', 'Get quick & accurate answers'], ['♙', 'Private & Secure', 'Your conversation is safe with us']].map(([icon, title, detail]) => <span key={title}><b>{icon}</b><i><strong>{title}</strong><small>{detail}</small></i></span>)}</div><button className="button voice-button" onClick={() => goTo('chat')}><span>♬</span> Start Voice Chat</button><small className="priority">♡ Your health. Our priority.</small></div><div className="hero-art"><div className="cloud c1" /><div className="cloud c2" /><div className="hospital"><span>✚</span><b>HOSPITAL</b><i /></div><div className="doctor"><div className="doctor-head" /><div className="doctor-hair" /><div className="doctor-body">✚</div></div><div className="mic-orbit"><span>♬</span></div></div></section><section className="quick-grid">{serviceData.slice(0, 4).map(([icon, title, detail]) => <button className="quick-card" key={title} onClick={() => goTo('chat')}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i></button>)}</section><section className="trust-strip">{[['♧', 'Trusted Care', 'Advanced AI with human touch'], ['◴', 'Fast & Reliable', 'Quick, accurate answers'], ['☼', 'Always Available', '24/7 assistance for you'], ['♧', 'Secure & Private', 'Your data is protected and confidential']].map(([icon, title, detail]) => <div key={title}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i></div>)}</section></main><Footer /></div>
+  return (
+    <div className="landing-page">
+      <div className="landing">
+        <Header goTo={goTo} />
+        <main>
+          <section className="hero-section">
+            <div className="hero-copy">
+              <h1>Your Hospital<br />Assistant,<br />Just a <span>Voice</span> Away</h1>
+              <p>Ask about hospital services, get information, or book appointments — simply by speaking.</p>
+              <button className="button hero-cta" onClick={() => goTo('chat')}><Ic name="mic" /> Start Voice Chat</button>
+              <div className="trust-line"><Ic name="shield" /><span>Private, Secure &amp; Always Here for You</span></div>
+            </div>
+            <VoiceAssistantVisual onStart={() => goTo('chat')} />
+          </section>
+
+          <section className="action-cards" aria-label="Quick actions">
+            {actionCards.map(([icon, title, detail, target]) => (
+              <button className="action-card" key={title} type="button" onClick={() => goTo(target)}>
+                <span className="action-icon"><Ic name={icon} /></span>
+                <i><strong>{title}</strong><small>{detail}</small></i>
+              </button>
+            ))}
+          </section>
+
+          <section className="benefits-strip" aria-label="Benefits">
+            {benefitItems.map(([icon, title, detail]) => (
+              <div className="benefit-item" key={title}>
+                <span className="benefit-icon"><Ic name={icon} /></span>
+                <i><strong>{title}</strong><small>{detail}</small></i>
+              </div>
+            ))}
+          </section>
+        </main>
+        <Footer goTo={goTo} />
+      </div>
+    </div>
+  )
 }
 
 function PageShell({ page, goTo, children }) {
