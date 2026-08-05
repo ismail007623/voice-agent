@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import doctorAvatar from './assets/ai-doctor-avatar.png'
 import './App.css'
 
 const serviceData = [
@@ -10,6 +11,39 @@ const serviceData = [
 ]
 const progressCopy = ['Transcribing your question...', 'Finding the right information...', 'Preparing your answer...']
 const API_BASE_URL = 'https://popular-subheader-endnote.ngrok-free.dev'
+const VAD_VOLUME_THRESHOLD = 0.03
+const VAD_SILENCE_TIMEOUT_MS = 1000
+const VAD_MIN_SPEECH_MS = 400
+const MEDIA_RECORDER_TIMESLICE_MS = 250
+const processingStageMessages = {
+  transcribing: 'Transcribing...',
+  loading_context: 'Loading conversation...',
+  generating_response: 'Generating response...',
+  saving_conversation: 'Saving conversation...',
+  synthesizing_audio: 'Creating voice response...',
+  streaming_audio: 'Receiving response...',
+}
+
+function getApiBaseUrl() {
+  return import.meta.env.VITE_API_BASE_URL || API_BASE_URL || window.location.origin
+}
+
+function getVoiceChatWsUrl() {
+  const base = getApiBaseUrl().trim().replace(/\/+$/, '')
+  const url = new URL(base)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const basePath = url.pathname.replace(/\/+$/, '')
+  url.pathname = basePath.endsWith('/voice-chat/ws')
+    ? basePath
+    : `${basePath}/voice-chat/ws`.replace(/\/{2,}/g, '/')
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function createRequestId() {
+  return crypto.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
 const actionCards = [
@@ -36,18 +70,15 @@ function Ic({ name, className }) {
     pin: <g {...p}><path d="M12 21c4-4.5 6-7.6 6-10.5a6 6 0 1 0-12 0C6 13.4 8 16.5 12 21z" /><circle cx="12" cy="10.5" r="2.2" /></g>,
     hospital: <g {...p}><path d="M4 21V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14" /><path d="M2 21h20M9 21v-5h6v5M12 5v6M9 8h6" /></g>,
     menu: <path {...p} d="M4 7h16M4 12h16M4 17h16" />,
+    chat: <g {...p}><path d="M5 5.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4 3.2V16.5H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" /><circle cx="9" cy="11" r="0.9" fill="currentColor" stroke="none" /><circle cx="12" cy="11" r="0.9" fill="currentColor" stroke="none" /><circle cx="15" cy="11" r="0.9" fill="currentColor" stroke="none" /></g>,
+    history: <g {...p}><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" /><path d="M4.5 5.5v4h4" /><path d="M12 8v4.2l2.8 1.7" /></g>,
+    help: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M9.6 9.4a2.4 2.4 0 1 1 3.5 2.1c-.7.4-1.1.9-1.1 1.7" /><circle cx="12" cy="16.4" r="0.8" fill="currentColor" stroke="none" /></g>,
+    settings: <g {...p}><circle cx="12" cy="12" r="3" /><path d="M12 3.5v2.2M12 18.3v2.2M4.9 6.4l1.6 1.6M17.5 16l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.9 17.6l1.6-1.6M17.5 8l1.6-1.6" /></g>,
+    logout: <g {...p}><path d="M10 5.5H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /><path d="M14 8.5 17.5 12 14 15.5M10 12h7.5" /></g>,
+    hangup: <g {...p} transform="rotate(135 12 12)"><path d="M6.5 3.5h3l1.5 4.5-2 1.2a11 11 0 0 0 5 5l1.2-2 4.5 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z" /></g>,
+    info: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 10.5v5" /><circle cx="12" cy="7.8" r="0.8" fill="currentColor" stroke="none" /></g>,
   }
   return <svg viewBox="0 0 24 24" width="1em" height="1em" className={className} aria-hidden="true">{shapes[name]}</svg>
-}
-
-function isLikelyAudioResponse(contentType = '', contentDisposition = '') {
-  const type = contentType.toLowerCase()
-  const disposition = contentDisposition.toLowerCase()
-  return type.includes('audio/') || type.includes('video/webm') || type.includes('application/octet-stream') || disposition.includes('attachment')
-}
-
-function getConversationId(response) {
-  return response.headers.get('x-conversation-id') || response.headers.get('conversation-id') || response.headers.get('conversation_id') || ''
 }
 
 function Brand({ light = false, onClick }) {
@@ -73,8 +104,24 @@ function Header({ goTo }) {
 }
 
 function Sidebar({ page, goTo }) {
-  const links = [['▣', 'Chat', 'chat'], ['◷', 'History', 'history'], ['◉', 'Help', 'about'], ['⚙', 'Settings', 'about']]
-  return <aside className="sidebar"><Brand onClick={() => goTo('home')} /><div className="side-menu">{links.map(([icon, label, target]) => <button className={page === target ? 'selected' : ''} onClick={() => goTo(target)} key={label}><span>{icon}</span>{label}</button>)}</div><button className="logout">⇥<span>Logout</span></button></aside>
+  const links = [['chat', 'Chat', 'chat'], ['history', 'History', 'history'], ['help', 'Help', 'about'], ['settings', 'Settings', 'about']]
+  return (
+    <aside className="sidebar">
+      <Brand onClick={() => goTo('home')} />
+      <div className="side-menu">
+        {links.map(([icon, label, target]) => (
+          <button className={page === target ? 'selected' : ''} onClick={() => goTo(target)} key={label} type="button">
+            <span className="side-icon"><Ic name={icon} /></span>
+            {label}
+          </button>
+        ))}
+      </div>
+      <button className="logout" type="button">
+        <span className="side-icon"><Ic name="logout" /></span>
+        <span>Logout</span>
+      </button>
+    </aside>
+  )
 }
 
 function Footer({ goTo }) {
@@ -165,119 +212,714 @@ function PageShell({ page, goTo, children }) {
   return <div className="app-shell"><Sidebar page={page} goTo={goTo} /><main className="app-main">{children}</main></div>
 }
 
+function getAgentStateLabel(agentState, processingMessage, error) {
+  switch (agentState) {
+    case 'disconnected':
+      return 'Start Voice Agent'
+    case 'connecting':
+      return 'Connecting...'
+    case 'listening':
+      return 'Listening...'
+    case 'user_speaking':
+      return "I'm listening..."
+    case 'processing':
+      return processingMessage || progressCopy[0]
+    case 'speaking':
+      return 'AI is speaking...'
+    case 'error':
+      return error || 'Something went wrong.'
+    default:
+      return ''
+  }
+}
+
+function getVoiceStatus(agentState, processingMessage, error) {
+  switch (agentState) {
+    case 'disconnected':
+      return { tone: 'idle', text: 'Not connected' }
+    case 'connecting':
+      return { tone: 'connecting', text: 'Connecting...' }
+    case 'listening':
+      return { tone: 'listening', text: 'Connected • Listening...' }
+    case 'user_speaking':
+      return { tone: 'listening', text: "Connected • I'm listening..." }
+    case 'processing':
+      return { tone: 'processing', text: `Connected • ${processingMessage || progressCopy[0]}` }
+    case 'speaking':
+      return { tone: 'speaking', text: 'Connected • AI is speaking...' }
+    case 'error':
+      return { tone: 'error', text: error || 'Something went wrong.' }
+    default:
+      return { tone: 'idle', text: getAgentStateLabel(agentState, processingMessage, error) }
+  }
+}
+
+function computeAnalyserRms(analyser, buffer) {
+  analyser.getByteTimeDomainData(buffer)
+  let sum = 0
+  for (let index = 0; index < buffer.length; index += 1) {
+    const sample = (buffer[index] - 128) / 128
+    sum += sample * sample
+  }
+  return Math.sqrt(sum / buffer.length)
+}
+
+function VoiceWave({ side, agentState, vadLevel }) {
+  const heights = side === 'left' ? [...waveHeights].reverse() : waveHeights
+  const active = agentState === 'user_speaking' || agentState === 'speaking' || agentState === 'listening'
+
+  return (
+    <div className={`voice-flank-wave voice-flank-${side} ${active ? 'is-active' : ''}`} aria-hidden="true">
+      {heights.map((height, index) => {
+        let scale = 0.45
+        if (agentState === 'user_speaking') scale = 0.55 + Math.min(vadLevel, 0.25) * 4
+        else if (agentState === 'speaking') scale = 0.85
+        else if (agentState === 'listening') scale = 0.55
+        const barHeight = Math.max(8, Math.round(height * scale * (side === 'left' ? 0.85 : 0.85)))
+        return <i key={`${side}-${index}`} style={{ height: `${barHeight}px`, animationDelay: `${(index % 8) * 0.08}s` }} />
+      })}
+    </div>
+  )
+}
+
+function VoiceAgentAvatar({ agentState, vadLevel }) {
+  return (
+    <div className={`voice-agent voice-agent-${agentState}`} aria-hidden="true">
+      <VoiceWave side="left" agentState={agentState} vadLevel={vadLevel} />
+      <div className="voice-portrait">
+        <span className="voice-portrait-glow" />
+        <span className="voice-portrait-ring" />
+        <img src={doctorAvatar} alt="" />
+      </div>
+      <VoiceWave side="right" agentState={agentState} vadLevel={vadLevel} />
+    </div>
+  )
+}
+
 function Topbar({ title, goTo, children }) {
-  return <div className="topbar"><button className="back" onClick={() => goTo('home')}>←</button><strong>{title}</strong><div className="topbar-actions">{children}<button className="info">ⓘ</button></div></div>
+  return (
+    <div className="topbar">
+      <button className="back" type="button" onClick={() => goTo('home')} aria-label="Back">←</button>
+      <strong>{title}</strong>
+      <div className="topbar-actions">
+        {children}
+        <button className="info" type="button" aria-label="Info"><Ic name="info" /></button>
+      </div>
+    </div>
+  )
 }
 
 function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startNewChat }) {
-  const [status, setStatus] = useState('idle')
-  const [seconds, setSeconds] = useState(0)
-  const [progress, setProgress] = useState(0)
+  const [agentState, setAgentState] = useState('disconnected')
   const [error, setError] = useState('')
-  const [audioUrl, setAudioUrl] = useState('')
-  const recorder = useRef(null)
+  const [processingMessage, setProcessingMessage] = useState('')
+  const [userTranscript, setUserTranscript] = useState('')
+  const [assistantText, setAssistantText] = useState('')
+  const [vadLevel, setVadLevel] = useState(0)
+  const [activeRequestId, setActiveRequestId] = useState('')
+
+  const socket = useRef(null)
   const stream = useRef(null)
-  const chunks = useRef([])
-  const timer = useRef(null)
-  const controller = useRef(null)
-  useEffect(() => () => { clearInterval(timer.current); stream.current?.getTracks().forEach((track) => track.stop()); controller.current?.abort(); if (audioUrl) URL.revokeObjectURL(audioUrl) }, [audioUrl])
-  useEffect(() => { if (status !== 'processing') return undefined; const interval = setInterval(() => setProgress((value) => (value + 1) % progressCopy.length), 3500); return () => clearInterval(interval) }, [status])
-  const releaseStream = () => { stream.current?.getTracks().forEach((track) => track.stop()); stream.current = null }
-  const reset = () => { clearInterval(timer.current); releaseStream(); setSeconds(0); setError(''); setStatus('idle') }
-  const start = async () => {
+  const recorder = useRef(null)
+  const audioContext = useRef(null)
+  const analyser = useRef(null)
+  const analyserBuffer = useRef(null)
+  const vadFrameId = useRef(null)
+  const silenceTimer = useRef(null)
+  const speechStartTime = useRef(0)
+  const responseAudioChunks = useRef([])
+  const assistantAudio = useRef(null)
+  const audioUrlRef = useRef('')
+  const responseComplete = useRef(true)
+  const playbackComplete = useRef(true)
+  const isReceivingAudio = useRef(false)
+  const vadPaused = useRef(false)
+  const intentionalClose = useRef(false)
+  const handleVoiceEventRef = useRef(() => {})
+  const agentStateRef = useRef('disconnected')
+  const agentConnectedRef = useRef(false)
+  const agentConnectingRef = useRef(false)
+  const activeRequestIdRef = useRef('')
+  const conversationIdRef = useRef(conversationId)
+  const beginUserTurnRef = useRef(() => {})
+  const finishUserTurnRef = useRef(() => {})
+  const tryResumeListeningRef = useRef(() => {})
+  const startVadLoopRef = useRef(() => {})
+  const stopVadLoopRef = useRef(() => {})
+  const vadLevelFrame = useRef(0)
+
+  const agentConnected = ['listening', 'user_speaking', 'processing', 'speaking'].includes(agentState)
+  const agentConnecting = agentState === 'connecting'
+
+  useEffect(() => {
+    agentStateRef.current = agentState
+    agentConnectedRef.current = agentConnected
+    agentConnectingRef.current = agentConnecting
+  }, [agentState, agentConnected, agentConnecting])
+
+  useEffect(() => {
+    activeRequestIdRef.current = activeRequestId
+  }, [activeRequestId])
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId
+  }, [conversationId])
+
+  const syncAgentState = (nextState) => {
+    agentStateRef.current = nextState
+    agentConnectedRef.current = ['listening', 'user_speaking', 'processing', 'speaking'].includes(nextState)
+    agentConnectingRef.current = nextState === 'connecting'
+    setAgentState(nextState)
+  }
+
+  const sendJson = (payload) => {
+    if (socket.current?.readyState === WebSocket.OPEN) {
+      socket.current.send(JSON.stringify(payload))
+    }
+  }
+
+  const sendFrontendRecordingEnd = (requestId) => {
+    if (!requestId) return
+    sendJson({ event: 'audio_end', request_id: requestId })
+  }
+
+  const sendBinaryChunk = async (blob) => {
+    if (!blob.size || socket.current?.readyState !== WebSocket.OPEN) return
+    const buffer = await blob.arrayBuffer()
+    if (socket.current?.readyState === WebSocket.OPEN) {
+      socket.current.send(buffer)
+    }
+  }
+
+  const revokeAudioUrl = (url = audioUrlRef.current) => {
+    if (url) URL.revokeObjectURL(url)
+  }
+
+  const resetMessageUi = () => {
+    setProcessingMessage('')
+    setUserTranscript('')
+    setAssistantText('')
+  }
+
+  const clearSilenceTimer = () => {
+    if (silenceTimer.current) {
+      clearTimeout(silenceTimer.current)
+      silenceTimer.current = null
+    }
+  }
+
+  const stopVadLoop = () => {
+    if (vadFrameId.current) {
+      cancelAnimationFrame(vadFrameId.current)
+      vadFrameId.current = null
+    }
+    clearSilenceTimer()
+  }
+
+  const canStartTurn = () => {
+    if (socket.current?.readyState !== WebSocket.OPEN) return false
+    if (agentStateRef.current !== 'listening') return false
+    if (activeRequestIdRef.current) return false
+    if (isReceivingAudio.current) return false
+    if (!playbackComplete.current) return false
+    const audio = assistantAudio.current
+    if (audio && !audio.paused && !audio.ended) return false
+    return true
+  }
+
+  const startVadLoop = () => {
+    stopVadLoop()
+    if (!analyser.current) return
+    vadPaused.current = false
+    if (!analyserBuffer.current) {
+      analyserBuffer.current = new Uint8Array(analyser.current.fftSize)
+    }
+
+    const tick = () => {
+      if (!analyser.current || vadPaused.current) return
+
+      const state = agentStateRef.current
+      const rms = computeAnalyserRms(analyser.current, analyserBuffer.current)
+      vadLevelFrame.current += 1
+      if (vadLevelFrame.current % 6 === 0) {
+        setVadLevel(rms)
+      }
+
+      if (state === 'listening' && canStartTurn() && rms >= VAD_VOLUME_THRESHOLD) {
+        beginUserTurnRef.current()
+        return
+      }
+
+      if (state === 'user_speaking') {
+        if (rms < VAD_VOLUME_THRESHOLD) {
+          if (!silenceTimer.current) {
+            silenceTimer.current = setTimeout(() => {
+              silenceTimer.current = null
+              finishUserTurnRef.current()
+            }, VAD_SILENCE_TIMEOUT_MS)
+          }
+        } else {
+          clearSilenceTimer()
+        }
+      }
+
+      if (state === 'listening' || state === 'user_speaking') {
+        vadFrameId.current = requestAnimationFrame(tick)
+      }
+    }
+
+    console.debug('[voice] VAD started', { agentState: agentStateRef.current })
+    vadFrameId.current = requestAnimationFrame(tick)
+  }
+
+  const tryResumeListening = () => {
+    if (
+      !agentConnectedRef.current ||
+      !responseComplete.current ||
+      !playbackComplete.current ||
+      activeRequestIdRef.current
+    ) {
+      return
+    }
+    vadPaused.current = false
+    syncAgentState('listening')
+    startVadLoop()
+  }
+
+  const playResponseAudio = (url) => {
+    audioUrlRef.current = url
+    playbackComplete.current = false
+    syncAgentState('speaking')
+    vadPaused.current = true
+    stopVadLoop()
+
+    if (!assistantAudio.current) {
+      assistantAudio.current = new Audio()
+    }
+
+    const audio = assistantAudio.current
+    audio.onended = () => {
+      revokeAudioUrl(url)
+      audioUrlRef.current = ''
+      playbackComplete.current = true
+      tryResumeListeningRef.current()
+    }
+    audio.onerror = () => {
+      revokeAudioUrl(url)
+      audioUrlRef.current = ''
+      playbackComplete.current = true
+      tryResumeListeningRef.current()
+    }
+    audio.src = url
+    addHistory({
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      status: 'Answer received',
+      url,
+    })
+    audio.play().catch(() => {
+      playbackComplete.current = true
+      tryResumeListeningRef.current()
+    })
+  }
+
+  const handleBackendAudioEnd = () => {
+    isReceivingAudio.current = false
+    if (!responseAudioChunks.current.length) {
+      responseAudioChunks.current = []
+      playbackComplete.current = true
+      tryResumeListeningRef.current()
+      return
+    }
+
+    const blob = new Blob(responseAudioChunks.current, { type: 'audio/mpeg' })
+    responseAudioChunks.current = []
+    revokeAudioUrl()
+    const url = URL.createObjectURL(blob)
+    playResponseAudio(url)
+  }
+
+  const beginUserTurn = () => {
+    if (!canStartTurn() || !stream.current) return
+
+    console.debug('[voice] speech detected')
+    clearSilenceTimer()
+    stopVadLoop()
+
+    const requestId = createRequestId()
+    activeRequestIdRef.current = requestId
+    setActiveRequestId(requestId)
+    responseComplete.current = false
+    playbackComplete.current = true
+    speechStartTime.current = Date.now()
     setError('')
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { setError('Voice recording is not supported in this browser. Please use a recent browser and try again.'); setStatus('error'); return }
-    try {
-      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true })
-      chunks.current = []
-      const mediaRecorder = new MediaRecorder(stream.current)
-      recorder.current = mediaRecorder
-      mediaRecorder.ondataavailable = (event) => { if (event.data.size) chunks.current.push(event.data) }
-      mediaRecorder.onstop = send
-      mediaRecorder.start()
-      setStatus('recording')
-      timer.current = setInterval(() => setSeconds((value) => { if (value >= 59) { mediaRecorder.stop(); clearInterval(timer.current); return 60 } return value + 1 }), 1000)
-    } catch {
-      setError('Microphone access is needed to answer your question. Please allow it in browser settings and try again.')
-      setStatus('error')
+    setUserTranscript('')
+    setAssistantText('')
+
+    sendJson({
+      event: 'start',
+      request_id: requestId,
+      conversation_id: conversationIdRef.current || null,
+      audio_format: 'audio/webm',
+    })
+    console.debug('[voice] start sent', { request_id: requestId })
+
+    const mediaRecorder = new MediaRecorder(stream.current)
+    recorder.current = mediaRecorder
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size) console.debug('[voice] chunk sent', event.data.size)
+      sendBinaryChunk(event.data)
+    }
+
+    mediaRecorder.onstop = () => {
+      recorder.current = null
+    }
+
+    mediaRecorder.start(MEDIA_RECORDER_TIMESLICE_MS)
+    syncAgentState('user_speaking')
+    startVadLoop()
+  }
+
+  const finishUserTurn = () => {
+    clearSilenceTimer()
+    stopVadLoop()
+    vadPaused.current = true
+
+    const requestId = activeRequestIdRef.current
+    const speechDuration = Date.now() - speechStartTime.current
+    const isShortSpeech = speechDuration < VAD_MIN_SPEECH_MS
+
+    if (recorder.current?.state === 'recording') {
+      const currentRecorder = recorder.current
+      currentRecorder.onstop = () => {
+        recorder.current = null
+        sendFrontendRecordingEnd(requestId)
+        console.debug('[voice] audio_end sent', { request_id: requestId })
+        syncAgentState('processing')
+        setProcessingMessage(progressCopy[0])
+        if (isShortSpeech) {
+          setError('')
+        }
+      }
+      currentRecorder.stop()
+    } else {
+      sendFrontendRecordingEnd(requestId)
+      console.debug('[voice] audio_end sent', { request_id: requestId })
+      syncAgentState('processing')
+      setProcessingMessage(progressCopy[0])
     }
   }
-  const stop = () => { if (recorder.current?.state === 'recording') { clearInterval(timer.current); setStatus('processing'); recorder.current.stop() } }
-  const cancel = () => { if (recorder.current?.state === 'recording') { recorder.current.onstop = null; recorder.current.stop() } reset() }
-  const send = async () => {
+
+  const releaseAudioGraph = async () => {
+    stopVadLoop()
+    if (audioContext.current && audioContext.current.state !== 'closed') {
+      await audioContext.current.close().catch(() => {})
+    }
+    audioContext.current = null
+    analyser.current = null
+    analyserBuffer.current = null
+  }
+
+  const releaseStream = () => {
+    stream.current?.getTracks().forEach((track) => track.stop())
+    stream.current = null
+  }
+
+  const stopAssistantPlayback = () => {
+    const audio = assistantAudio.current
+    if (audio) {
+      audio.onended = null
+      audio.onerror = null
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
+    }
+    revokeAudioUrl()
+    audioUrlRef.current = ''
+    playbackComplete.current = true
+  }
+
+  const teardownVoiceSession = ({ closeSocket = true, sendActiveRecordingEnd = false } = {}) => {
+    intentionalClose.current = true
+    vadPaused.current = true
+    stopVadLoop()
+
+    const requestId = activeRequestIdRef.current
+    if (sendActiveRecordingEnd && requestId) {
+      sendFrontendRecordingEnd(requestId)
+    }
+
+    if (recorder.current?.state === 'recording') {
+      recorder.current.onstop = null
+      recorder.current.stop()
+      recorder.current = null
+    }
+
+    stopAssistantPlayback()
     releaseStream()
-    const blob = new Blob(chunks.current, { type: recorder.current?.mimeType || 'audio/webm' })
-    if (!blob.size) { setError('We did not hear any audio. Please speak clearly and try again.'); setStatus('error'); return }
-    const formData = new FormData()
-    formData.append('file', blob, 'shenaz-question.webm')
-    formData.append('conversation_id', conversationId)
-    controller.current = new AbortController()
-    const timeout = setTimeout(() => controller.current?.abort(), 90000)
-    try {
-      console.debug('Voice request', { url: `${API_BASE_URL}/voice-chat`, conversationId })
-      const response = await fetch(`${API_BASE_URL}/voice-chat`, {
-        method: 'POST',
-        body: formData,
-        signal: controller.current.signal,
-        mode: 'cors',
-      })
-      clearTimeout(timeout)
-      console.debug('Voice response status', response.status, response.statusText)
-      console.debug('Voice response headers', Array.from(response.headers.entries()))
-      const returnedConversationId = getConversationId(response)
-      console.debug('Voice conversation ID', { sent: conversationId, received: returnedConversationId })
-      const contentType = response.headers.get('content-type') || ''
-      const contentDisposition = response.headers.get('content-disposition') || ''
-      if (!response.ok) {
-        let message = 'We could not get your answer. Please try again.'
-        const text = await response.text()
-        if (text) {
-          try {
-            const data = JSON.parse(text)
-            message = data.message || data.detail || message
-          } catch {
-            message = text || message
-          }
+    releaseAudioGraph()
+
+    if (closeSocket && socket.current) {
+      socket.current.onopen = null
+      socket.current.onmessage = null
+      socket.current.onerror = null
+      socket.current.onclose = null
+      if (socket.current.readyState === WebSocket.OPEN || socket.current.readyState === WebSocket.CONNECTING) {
+        socket.current.close()
+      }
+      socket.current = null
+    }
+
+    setActiveRequestId('')
+    activeRequestIdRef.current = ''
+    responseAudioChunks.current = []
+    isReceivingAudio.current = false
+    responseComplete.current = true
+    playbackComplete.current = true
+    intentionalClose.current = false
+  }
+
+  const endVoiceAgent = (closeMessage = '') => {
+    const wasRecording = recorder.current?.state === 'recording'
+    const requestId = activeRequestIdRef.current
+    if (wasRecording && requestId) {
+      sendFrontendRecordingEnd(requestId)
+    }
+
+    teardownVoiceSession({ closeSocket: true })
+    setConversationId('')
+    resetMessageUi()
+    setError(closeMessage)
+    syncAgentState('disconnected')
+    setVadLevel(0)
+  }
+
+  const handleVoiceEvent = (message) => {
+    const { event: eventName } = message
+
+    switch (eventName) {
+      case 'connected':
+        console.debug('[voice] connected', message)
+        if (message.conversation_id) setConversationId(message.conversation_id)
+        responseComplete.current = true
+        playbackComplete.current = true
+        setError('')
+        syncAgentState('listening')
+        startVadLoopRef.current()
+        break
+      case 'recording_started':
+      case 'recording_received':
+        break
+      case 'processing':
+        setProcessingMessage(processingStageMessages[message.stage] || progressCopy[0])
+        syncAgentState('processing')
+        vadPaused.current = true
+        stopVadLoopRef.current()
+        break
+      case 'transcription':
+        setUserTranscript(message.text || message.transcript || message.content || '')
+        break
+      case 'assistant_text':
+        setAssistantText(message.text || message.content || '')
+        break
+      case 'audio_start':
+        responseAudioChunks.current = []
+        isReceivingAudio.current = true
+        vadPaused.current = true
+        stopVadLoopRef.current()
+        break
+      case 'audio_end':
+        handleBackendAudioEnd()
+        break
+      case 'response_complete':
+        responseComplete.current = true
+        activeRequestIdRef.current = ''
+        setActiveRequestId('')
+        setProcessingMessage('')
+        isReceivingAudio.current = false
+        tryResumeListeningRef.current()
+        break
+      case 'error': {
+        const recoverable = message.recoverable !== false
+        const errorMessage = message.message || 'Something went wrong. Please try again.'
+        responseComplete.current = true
+        activeRequestIdRef.current = ''
+        setActiveRequestId('')
+        setProcessingMessage('')
+        isReceivingAudio.current = false
+        responseAudioChunks.current = []
+        addHistory({
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          status: 'Could not complete',
+          url: '',
+        })
+        if (recoverable) {
+          setError(errorMessage)
+          playbackComplete.current = true
+          tryResumeListeningRef.current()
+        } else {
+          endVoiceAgent(errorMessage)
+          syncAgentState('error')
         }
-        throw new Error(message)
+        break
       }
-      if (!conversationId && !returnedConversationId) {
-        throw new Error('The hospital service did not return a conversation ID. Please try again after the server response is updated.')
-      }
-      if (conversationId && returnedConversationId && returnedConversationId !== conversationId) {
-        throw new Error('The hospital service returned a different conversation ID. Your conversation was not continued.')
-      }
-      if (returnedConversationId) setConversationId(returnedConversationId)
-      if (!isLikelyAudioResponse(contentType, contentDisposition)) {
-        const text = await response.text()
-        let message = 'The hospital service returned an unexpected response. Please try again.'
-        if (text) {
-          try {
-            const data = JSON.parse(text)
-            message = data.message || data.detail || message
-          } catch {
-            message = text || message
-          }
-        }
-        throw new Error(message)
-      }
-      const url = URL.createObjectURL(await response.blob())
-      setAudioUrl(url); setStatus('playing'); addHistory({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'Answer received', url })
-      const audio = new Audio(url)
-      audio.onended = () => { URL.revokeObjectURL(url); setAudioUrl(''); reset() }
-      audio.play().catch(() => {})
-    } catch (requestError) {
-      clearTimeout(timeout)
-      setError(requestError.name === 'AbortError' ? 'This is taking longer than usual. Please check your connection and try again.' : requestError.message)
-      setStatus('error')
-      addHistory({ time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), status: 'Could not complete', url: '' })
+      default:
+        break
     }
   }
-  const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
-  return <PageShell page="chat" goTo={goTo}><Topbar title="AI Voice Chat" goTo={goTo}><button className="new-chat-button" onClick={startNewChat}>New Chat</button></Topbar><section className={`voice-panel ${status}`}><div className="voice-heading">{status === 'idle' && <><h2>How can we help?</h2><p>Ask about appointments, hospital services, or anything else.</p></>}{status === 'recording' && <><b>{time}</b><p className="recording-text">Recording...</p></>}{status === 'processing' && <><h2>Getting your answer</h2><p>{progressCopy[progress]}</p></>}{status === 'playing' && <><h2>Here&apos;s your answer</h2><p>Listen to your personalised response.</p></>}{status === 'error' && <><h2>Let&apos;s try again</h2><p>{error}</p></>}</div>{status === 'recording' && <Wave className="wave-red" count={9} />}{status === 'processing' && <Wave className="wave-thinking" count={24} />}{status === 'playing' && <Wave className="wave-playing" count={15} />}{(status === 'idle' || status === 'error') && <button className="mic-button" onClick={status === 'error' ? reset : start}>♬</button>}{status === 'recording' && <button className="stop-button" onClick={stop}>■</button>}{status === 'playing' && <div className="player"><button onClick={() => new Audio(audioUrl).play()}>↻</button><div><i /></div><button onClick={reset}>Done</button></div>}<div className="voice-actions">{status === 'idle' && <p>Tap the microphone<br />to ask your question</p>}{status === 'recording' && <button className="text-button" onClick={cancel}>Cancel recording</button>}{status === 'processing' && <p>Please wait. This may take a few seconds.</p>}{status === 'error' && <button className="button" onClick={start}>Try again</button>}</div></section></PageShell>
+
+  beginUserTurnRef.current = beginUserTurn
+  finishUserTurnRef.current = finishUserTurn
+  tryResumeListeningRef.current = tryResumeListening
+  startVadLoopRef.current = startVadLoop
+  stopVadLoopRef.current = stopVadLoop
+  handleVoiceEventRef.current = handleVoiceEvent
+
+  const setupAudioInput = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      throw new Error('Voice recording is not supported in this browser. Please use a recent browser and try again.')
+    }
+
+    stream.current = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    })
+
+    const context = new AudioContext()
+    audioContext.current = context
+    const source = context.createMediaStreamSource(stream.current)
+    const node = context.createAnalyser()
+    node.fftSize = 2048
+    source.connect(node)
+    analyser.current = node
+    analyserBuffer.current = new Uint8Array(node.fftSize)
+
+    if (context.state === 'suspended') {
+      await context.resume()
+    }
+  }
+
+  const startVoiceAgent = async () => {
+    if (agentConnecting || agentConnected || socket.current) return
+
+    setError('')
+    syncAgentState('connecting')
+
+    try {
+      await setupAudioInput()
+    } catch (setupError) {
+      setError(setupError.message || 'Microphone access is needed. Please allow it in browser settings and try again.')
+      syncAgentState('error')
+      teardownVoiceSession({ closeSocket: false })
+      return
+    }
+
+    const ws = new WebSocket(getVoiceChatWsUrl())
+    ws.binaryType = 'arraybuffer'
+    socket.current = ws
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        try {
+          handleVoiceEventRef.current(JSON.parse(event.data))
+        } catch {
+          setError('Received an invalid message from the voice service.')
+          syncAgentState('error')
+        }
+        return
+      }
+      if (isReceivingAudio.current) {
+        responseAudioChunks.current.push(event.data)
+      }
+    }
+
+    ws.onerror = () => {
+      if (intentionalClose.current) return
+      if (!agentConnectedRef.current) {
+        setError('Could not connect to the voice agent. Please try again.')
+        syncAgentState('error')
+        teardownVoiceSession({ closeSocket: true })
+      }
+    }
+
+    ws.onclose = () => {
+      if (intentionalClose.current) {
+        socket.current = null
+        return
+      }
+      if (agentStateRef.current === 'connecting') {
+        setError((current) => current || 'Voice agent connection closed before it was ready.')
+        syncAgentState('error')
+        teardownVoiceSession({ closeSocket: false })
+      } else if (agentConnectedRef.current) {
+        setError((current) => current || 'Voice agent disconnected.')
+        syncAgentState('disconnected')
+        teardownVoiceSession({ closeSocket: false })
+      }
+      socket.current = null
+    }
+  }
+
+  const handleNewChat = () => {
+    endVoiceAgent()
+    startNewChat()
+  }
+
+  useEffect(() => () => {
+    const requestId = activeRequestIdRef.current
+    if (recorder.current?.state === 'recording' && requestId) {
+      sendFrontendRecordingEnd(requestId)
+    }
+    teardownVoiceSession({ closeSocket: true })
+    setConversationId('')
+  }, [setConversationId])
+
+  const voiceStatus = getVoiceStatus(agentState, processingMessage, error)
+  const showTranscript = Boolean(userTranscript || assistantText)
+
+  return (
+    <PageShell page="chat" goTo={goTo}>
+      <Topbar title="AI Voice Chat" goTo={goTo}>
+        <button className="new-chat-button" type="button" onClick={handleNewChat}>New Chat</button>
+      </Topbar>
+      <section className={`voice-panel voice-panel-agent ${agentState}`}>
+        <VoiceAgentAvatar agentState={agentState} vadLevel={vadLevel} />
+        <div className={`voice-status voice-status-${voiceStatus.tone}`} aria-live="polite">
+          <span className="voice-status-dot" />
+          {voiceStatus.text}
+        </div>
+        <div className="voice-actions-row">
+          <button
+            className="call-button call-start"
+            type="button"
+            onClick={startVoiceAgent}
+            disabled={agentConnected || agentConnecting}
+          >
+            <Ic name="mic" /> Start
+          </button>
+          <button
+            className="call-button call-end"
+            type="button"
+            onClick={() => endVoiceAgent()}
+            disabled={!agentConnected && !agentConnecting}
+          >
+            <Ic name="hangup" /> End
+          </button>
+        </div>
+        {showTranscript && (
+          <div className="voice-transcript">
+            {userTranscript && <p><strong>You:</strong> {userTranscript}</p>}
+            {assistantText && <p><strong>Assistant:</strong> {assistantText}</p>}
+          </div>
+        )}
+      </section>
+    </PageShell>
+  )
 }
 
-function Wave({ className, count }) { return <div className={`wave ${className}`}>{Array.from({ length: count }, (_, index) => <i key={index} />)}</div> }
 function Services({ goTo }) { return <PageShell page="services" goTo={goTo}><Topbar title="Our Services" goTo={goTo} /><div className="content-page"><p className="eyebrow">CARE AT YOUR CONVENIENCE</p><h1>We&apos;re here to help</h1><p className="lead">Get answers and support from Shenaz Hospital whenever you need it.</p><div className="service-list">{serviceData.map(([icon, title, detail]) => <button key={title} onClick={() => goTo('chat')}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i><b>›</b></button>)}</div></div></PageShell> }
 function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark">✚</div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
 function History({ goTo, history }) { return <PageShell page="history" goTo={goTo}><Topbar title="Conversation History" goTo={goTo} /><div className="content-page history"><div className="search">⌕ <span>Search conversations...</span></div><div className="filters"><button className="active">All</button><button>Appointments</button><button>FAQs</button><button>General</button></div>{history.length ? history.map((item, index) => <article className="history-row" key={`${item.time}-${index}`}><span className={item.url ? 'history-icon success' : 'history-icon'}>{item.url ? '♬' : '!'}</span><i><strong>{item.status}</strong><small>Voice conversation · {item.time}</small></i>{item.url && <button onClick={() => new Audio(item.url).play()}>▶</button>}</article>) : <div className="empty-history"><span>◷</span><h2>No conversations yet</h2><p>Your voice conversations will appear here.</p><button className="button" onClick={() => goTo('chat')}>Start a voice chat</button></div>}</div></PageShell> }
