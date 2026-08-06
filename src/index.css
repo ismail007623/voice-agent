@@ -1,3 +1,14 @@
-html { min-width: 320px; background: #e8eeea; }
-body { margin: 0; min-width: 320px; }
-#root { min-height: 100vh; }
+html {
+  min-width: 320px;
+  background: #fff;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+#root {
+  min-height: 100vh;
+}

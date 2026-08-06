@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { gsap } from 'gsap'
+import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import doctorAvatar from './assets/ai-doctor-avatar.png'
 import './App.css'
 
@@ -55,6 +57,16 @@ const benefitItems = [
   ['clock', 'Always Available', 'Get help anytime, day or night.'],
   ['bolt', 'Fast Assistance', 'Instant answers for your healthcare needs.'],
 ]
+const careCapabilities = [
+  ['chat', 'Care guidance', 'Get clear answers about departments, services and the right next step for your needs.', 'Talk it through'],
+  ['calendar', 'Easy scheduling', 'Find a convenient appointment and manage your visit without waiting on hold.', 'Plan your visit'],
+  ['hospital', 'Hospital navigation', 'Quickly find specialists, visiting hours, locations and patient information.', 'Find your way'],
+]
+const journeySteps = [
+  ['01', 'Start with your voice', 'Tap the microphone and ask your question naturally.'],
+  ['02', 'We understand', 'Our assistant finds the most relevant hospital information.'],
+  ['03', 'Move forward', 'Get an answer, choose a service or take the next action.'],
+]
 const waveHeights = [18, 28, 42, 56, 70, 52, 36, 48, 64, 40, 24, 34, 50, 62, 44, 30, 22]
 
 function Ic({ name, className }) {
@@ -77,6 +89,9 @@ function Ic({ name, className }) {
     logout: <g {...p}><path d="M10 5.5H7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /><path d="M14 8.5 17.5 12 14 15.5M10 12h7.5" /></g>,
     hangup: <g {...p} transform="rotate(135 12 12)"><path d="M6.5 3.5h3l1.5 4.5-2 1.2a11 11 0 0 0 5 5l1.2-2 4.5 1.5v3a2 2 0 0 1-2.2 2A16 16 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z" /></g>,
     info: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 10.5v5" /><circle cx="12" cy="7.8" r="0.8" fill="currentColor" stroke="none" /></g>,
+    arrowLeft: <path {...p} d="M15 5.5 8.5 12 15 18.5M8.5 12H20" />,
+    arrowRight: <path {...p} d="M9 5.5 15.5 12 9 18.5M15.5 12H4" />,
+    check: <path {...p} d="m6.5 12.5 3.4 3.4 7.6-8" />,
   }
   return <svg viewBox="0 0 24 24" width="1em" height="1em" className={className} aria-hidden="true">{shapes[name]}</svg>
 }
@@ -107,18 +122,26 @@ function Sidebar({ page, goTo }) {
   const links = [['chat', 'Chat', 'chat'], ['history', 'History', 'history'], ['help', 'Help', 'about'], ['settings', 'Settings', 'about']]
   return (
     <aside className="sidebar">
-      <Brand onClick={() => goTo('home')} />
-      <div className="side-menu">
+      <button className="sidebar-brand" type="button" onClick={() => goTo('home')} aria-label="Shenaz home">
+        <span className="sidebar-brand-mark">✚</span>
+      </button>
+      <nav className="side-menu" aria-label="App">
         {links.map(([icon, label, target]) => (
-          <button className={page === target ? 'selected' : ''} onClick={() => goTo(target)} key={label} type="button">
+          <button
+            className={page === target ? 'selected' : ''}
+            onClick={() => goTo(target)}
+            key={label}
+            type="button"
+            title={label}
+          >
             <span className="side-icon"><Ic name={icon} /></span>
-            {label}
+            <span className="side-label">{label}</span>
           </button>
         ))}
-      </div>
-      <button className="logout" type="button">
+      </nav>
+      <button className="logout" type="button" title="Logout">
         <span className="side-icon"><Ic name="logout" /></span>
-        <span>Logout</span>
+        <span className="side-label">Logout</span>
       </button>
     </aside>
   )
@@ -153,33 +176,115 @@ function Footer({ goTo }) {
 
 function VoiceAssistantVisual({ onStart }) {
   return (
-    <div className="voice-visual" aria-hidden="true">
-      <span className="deco deco-plus dp1">+</span>
-      <span className="deco deco-plus dp2">+</span>
-      <span className="deco deco-dot dd1" />
-      <span className="deco deco-dot dd2" />
-      <span className="deco deco-dot dd3" />
-      <span className="ring ring-1" />
-      <span className="ring ring-2" />
-      <span className="ring ring-3" />
-      <div className="waveform">{waveHeights.map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div>
+    <div className="voice-visual">
+      <span className="visual-glow" aria-hidden="true" />
+      <span className="deco deco-plus dp1" aria-hidden="true">+</span>
+      <span className="deco deco-plus dp2" aria-hidden="true">+</span>
+      <span className="deco deco-dot dd1" aria-hidden="true" />
+      <span className="deco deco-dot dd2" aria-hidden="true" />
+      <span className="deco deco-dot dd3" aria-hidden="true" />
+      <span className="ring ring-1" aria-hidden="true" />
+      <span className="ring ring-2" aria-hidden="true" />
+      <span className="ring ring-3" aria-hidden="true" />
+      <div className="waveform" aria-hidden="true">{waveHeights.map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div>
       <button className="voice-mic" type="button" aria-label="Start Voice Chat" onClick={onStart}><Ic name="mic" /></button>
+      <div className="visual-float visual-float-status" aria-hidden="true"><span /><i><strong>Assistant online</strong><small>Ready to help 24/7</small></i></div>
+      <div className="visual-float visual-float-secure" aria-hidden="true"><Ic name="shield" /><span>Private by design</span></div>
     </div>
   )
 }
 
 function Landing({ goTo }) {
+  const landingRef = useRef(null)
+
+  useLayoutEffect(() => {
+    gsap.registerPlugin(ScrollTrigger)
+    const context = gsap.context(() => {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+      const intro = gsap.timeline({ defaults: { ease: 'power3.out' } })
+      intro
+        .from('.site-header', { y: -34, opacity: 0, duration: 0.75 })
+        .from('.hero-copy h1', { y: 72, opacity: 0, skewY: 4, duration: 1.05 }, '-=0.35')
+        .from('.hero-copy > p, .hero-actions, .hero-proof', { y: 34, opacity: 0, duration: 0.75, stagger: 0.13 }, '-=0.6')
+        .from('.voice-visual', { x: 80, scale: 0.82, opacity: 0, rotation: 4, duration: 1.15 }, '-=0.95')
+        .from('.action-card', { y: 42, opacity: 0, duration: 0.7, stagger: 0.13 }, '-=0.5')
+
+      gsap.to('.gradient-orb-one', { xPercent: 42, yPercent: 28, scale: 1.18, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.gradient-orb-two', { xPercent: -34, yPercent: 32, scale: .86, duration: 9, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.ring-1', { rotation: 360, duration: 22, repeat: -1, ease: 'none' })
+      gsap.to('.ring-2', { rotation: -360, duration: 28, repeat: -1, ease: 'none' })
+      gsap.to('.visual-glow', { scale: 1.16, opacity: .66, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.waveform i', { scaleY: 1.35, duration: .75, repeat: -1, yoyo: true, stagger: { each: .055, from: 'center' }, ease: 'sine.inOut' })
+      gsap.to('.visual-float-status', { y: -14, x: 5, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.visual-float-secure', { y: 12, x: -5, duration: 2.9, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+
+      gsap.utils.toArray('[data-reveal]').forEach((element) => {
+        gsap.from(element, {
+          y: 42,
+          opacity: 0,
+          duration: 0.8,
+          ease: 'power3.out',
+          scrollTrigger: { trigger: element, start: 'top 84%', once: true },
+        })
+      })
+
+      gsap.from('.capability-card', {
+        y: 38,
+        opacity: 0,
+        duration: 0.7,
+        stagger: 0.12,
+        ease: 'power3.out',
+        scrollTrigger: { trigger: '.capability-grid', start: 'top 82%', once: true },
+      })
+
+      gsap.from('.journey-step', {
+        x: -24,
+        opacity: 0,
+        duration: 0.65,
+        stagger: 0.14,
+        ease: 'power2.out',
+        scrollTrigger: { trigger: '.journey-grid', start: 'top 82%', once: true },
+      })
+
+      gsap.to('.capabilities-section', {
+        backgroundPosition: '100% 50%',
+        ease: 'none',
+        scrollTrigger: { trigger: '.capabilities-section', start: 'top bottom', end: 'bottom top', scrub: 1 },
+      })
+
+      gsap.to('.closing-glow', {
+        x: -90,
+        y: 70,
+        scale: 1.25,
+        ease: 'none',
+        scrollTrigger: { trigger: '.closing-cta', start: 'top bottom', end: 'bottom top', scrub: 1 },
+      })
+    }, landingRef)
+
+    return () => context.revert()
+  }, [])
+
   return (
-    <div className="landing-page">
+    <div className="landing-page" ref={landingRef}>
       <div className="landing">
+        <div className="gradient-orb gradient-orb-one" aria-hidden="true" />
+        <div className="gradient-orb gradient-orb-two" aria-hidden="true" />
         <Header goTo={goTo} />
         <main>
           <section className="hero-section">
             <div className="hero-copy">
-              <h1>Your Hospital<br />Assistant,<br />Just a <span>Voice</span> Away</h1>
-              <p>Ask about hospital services, get information, or book appointments — simply by speaking.</p>
-              <button className="button hero-cta" onClick={() => goTo('chat')}><Ic name="mic" /> Start Voice Chat</button>
-              <div className="trust-line"><Ic name="shield" /><span>Private, Secure &amp; Always Here for You</span></div>
+              <h1 className="hero-reveal">Care begins with<br />a simple <span>hello.</span></h1>
+              <p className="hero-reveal"><span className="hero-lead">Meet your always-available hospital assistant.</span> Ask about services, find the right doctor or book an appointment—just by speaking.</p>
+              <div className="hero-actions hero-reveal">
+                <button className="button hero-cta" onClick={() => goTo('chat')}><Ic name="mic" /> Start Voice Chat</button>
+                <button className="hero-link" type="button" onClick={() => goTo('services')}>Explore services <Ic name="arrowRight" /></button>
+              </div>
+              <div className="hero-proof hero-reveal">
+                <span><strong>24/7</strong><small>Always available</small></span>
+                <span><strong>&lt; 30 sec</strong><small>To get started</small></span>
+                <span><strong>Secure</strong><small>Private support</small></span>
+              </div>
             </div>
             <VoiceAssistantVisual onStart={() => goTo('chat')} />
           </section>
@@ -193,6 +298,43 @@ function Landing({ goTo }) {
             ))}
           </section>
 
+          <section className="capabilities-section">
+            <div className="section-heading" data-reveal>
+              <div>
+                <p className="section-kicker">One connected experience</p>
+                <h2>Everything you need,<br />without the runaround.</h2>
+              </div>
+              <p>From the first question to the next step, Shenaz helps you navigate care with clarity, speed and confidence.</p>
+            </div>
+            <div className="capability-grid">
+              {careCapabilities.map(([icon, title, detail, action], index) => (
+                <button className={`capability-card capability-card-${index + 1}`} type="button" key={title} onClick={() => goTo(index === 1 ? 'chat' : 'services')}>
+                  <span className="capability-number">0{index + 1}</span>
+                  <span className="capability-icon"><Ic name={icon} /></span>
+                  <i><strong>{title}</strong><small>{detail}</small></i>
+                  <b>{action} <Ic name="arrowRight" /></b>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="journey-section">
+            <div className="journey-intro" data-reveal>
+              <p className="section-kicker">Designed around you</p>
+              <h2>Help that feels effortless.</h2>
+              <p>No forms to hunt down. No complicated menus. Just a natural conversation that helps you move forward.</p>
+              <div className="journey-note"><Ic name="check" /><span>Simple, human and available on your schedule.</span></div>
+            </div>
+            <div className="journey-grid">
+              {journeySteps.map(([number, title, detail]) => (
+                <article className="journey-step" key={number}>
+                  <span>{number}</span>
+                  <i><strong>{title}</strong><small>{detail}</small></i>
+                </article>
+              ))}
+            </div>
+          </section>
+
           <section className="benefits-strip" aria-label="Benefits">
             {benefitItems.map(([icon, title, detail]) => (
               <div className="benefit-item" key={title}>
@@ -200,6 +342,16 @@ function Landing({ goTo }) {
                 <i><strong>{title}</strong><small>{detail}</small></i>
               </div>
             ))}
+          </section>
+
+          <section className="closing-cta" data-reveal>
+            <span className="closing-glow" aria-hidden="true" />
+            <div>
+              <p className="section-kicker">Here when you need us</p>
+              <h2>Your care journey can start right now.</h2>
+              <p>Speak with the Shenaz voice assistant for fast, friendly guidance—day or night.</p>
+            </div>
+            <button className="button closing-button" onClick={() => goTo('chat')}><Ic name="mic" /> Talk to the assistant <Ic name="arrowRight" /></button>
           </section>
         </main>
         <Footer goTo={goTo} />
@@ -209,7 +361,15 @@ function Landing({ goTo }) {
 }
 
 function PageShell({ page, goTo, children }) {
-  return <div className="app-shell"><Sidebar page={page} goTo={goTo} /><main className="app-main">{children}</main></div>
+  return (
+    <div className="app-shell">
+      <div className="app-shell-bg" aria-hidden="true" />
+      <div className="app-frame">
+        <Sidebar page={page} goTo={goTo} />
+        <main className="app-main">{children}</main>
+      </div>
+    </div>
+  )
 }
 
 function getAgentStateLabel(agentState, processingMessage, error) {
@@ -236,19 +396,19 @@ function getAgentStateLabel(agentState, processingMessage, error) {
 function getVoiceStatus(agentState, processingMessage, error) {
   switch (agentState) {
     case 'disconnected':
-      return { tone: 'idle', text: 'Not connected' }
+      return { tone: 'idle', text: 'Ready when you are' }
     case 'connecting':
-      return { tone: 'connecting', text: 'Connecting...' }
+      return { tone: 'connecting', text: 'Connecting to agent…' }
     case 'listening':
-      return { tone: 'listening', text: 'Connected • Listening...' }
+      return { tone: 'listening', text: 'Listening' }
     case 'user_speaking':
-      return { tone: 'listening', text: "Connected • I'm listening..." }
+      return { tone: 'listening', text: 'Hearing you…' }
     case 'processing':
-      return { tone: 'processing', text: `Connected • ${processingMessage || progressCopy[0]}` }
+      return { tone: 'processing', text: processingMessage || progressCopy[0] }
     case 'speaking':
-      return { tone: 'speaking', text: 'Connected • AI is speaking...' }
+      return { tone: 'speaking', text: 'Speaking' }
     case 'error':
-      return { tone: 'error', text: error || 'Something went wrong.' }
+      return { tone: 'error', text: error || 'Something went wrong' }
     default:
       return { tone: 'idle', text: getAgentStateLabel(agentState, processingMessage, error) }
   }
@@ -298,14 +458,21 @@ function VoiceAgentAvatar({ agentState, vadLevel }) {
 
 function Topbar({ title, goTo, children }) {
   return (
-    <div className="topbar">
-      <button className="back" type="button" onClick={() => goTo('home')} aria-label="Back">←</button>
-      <strong>{title}</strong>
+    <header className="topbar">
+      <div className="topbar-left">
+        <button className="back" type="button" onClick={() => goTo('home')} aria-label="Back">
+          <Ic name="arrowLeft" />
+        </button>
+        <div className="topbar-title">
+          <p className="topbar-kicker">Voice Agent</p>
+          <strong>{title}</strong>
+        </div>
+      </div>
       <div className="topbar-actions">
         {children}
         <button className="info" type="button" aria-label="Info"><Ic name="info" /></button>
       </div>
-    </div>
+    </header>
   )
 }
 
@@ -882,39 +1049,53 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
   return (
     <PageShell page="chat" goTo={goTo}>
-      <Topbar title="AI Voice Chat" goTo={goTo}>
-        <button className="new-chat-button" type="button" onClick={handleNewChat}>New Chat</button>
+      <Topbar title="Shenaz Assistant" goTo={goTo}>
+        <button className="new-chat-button" type="button" onClick={handleNewChat}>New session</button>
       </Topbar>
       <section className={`voice-panel voice-panel-agent ${agentState}`}>
-        <VoiceAgentAvatar agentState={agentState} vadLevel={vadLevel} />
-        <div className={`voice-status voice-status-${voiceStatus.tone}`} aria-live="polite">
-          <span className="voice-status-dot" />
-          {voiceStatus.text}
-        </div>
-        <div className="voice-actions-row">
-          <button
-            className="call-button call-start"
-            type="button"
-            onClick={startVoiceAgent}
-            disabled={agentConnected || agentConnecting}
-          >
-            <Ic name="mic" /> Start
-          </button>
-          <button
-            className="call-button call-end"
-            type="button"
-            onClick={() => endVoiceAgent()}
-            disabled={!agentConnected && !agentConnecting}
-          >
-            <Ic name="hangup" /> End
-          </button>
-        </div>
-        {showTranscript && (
-          <div className="voice-transcript">
-            {userTranscript && <p><strong>You:</strong> {userTranscript}</p>}
-            {assistantText && <p><strong>Assistant:</strong> {assistantText}</p>}
+        <div className="voice-stage">
+          <VoiceAgentAvatar agentState={agentState} vadLevel={vadLevel} />
+          <div className={`voice-status voice-status-${voiceStatus.tone}`} aria-live="polite">
+            <span className="voice-status-dot" />
+            <span>{voiceStatus.text}</span>
           </div>
-        )}
+          <div className="voice-actions-row">
+            <button
+              className="call-button call-start"
+              type="button"
+              onClick={startVoiceAgent}
+              disabled={agentConnected || agentConnecting}
+            >
+              <Ic name="mic" />
+              <span>Start</span>
+            </button>
+            <button
+              className="call-button call-end"
+              type="button"
+              onClick={() => endVoiceAgent()}
+              disabled={!agentConnected && !agentConnecting}
+            >
+              <Ic name="hangup" />
+              <span>End</span>
+            </button>
+          </div>
+          {showTranscript && (
+            <div className="voice-transcript">
+              {userTranscript && (
+                <p className="voice-line voice-line-user">
+                  <span>You</span>
+                  {userTranscript}
+                </p>
+              )}
+              {assistantText && (
+                <p className="voice-line voice-line-assistant">
+                  <span>Assistant</span>
+                  {assistantText}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </section>
     </PageShell>
   )
