@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import doctorAvatar from './assets/ai-doctor-avatar.png'
+import shenazLogo from './assets/shenaz-logo.png'
 import './App.css'
 
 const serviceData = [
@@ -48,9 +49,11 @@ function createRequestId() {
 }
 
 const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
-const actionCards = [
-  ['hospital', 'Hospital Services', 'Explore our departments and healthcare services.', 'services'],
-  ['calendar', 'Book Appointment', 'Schedule appointments quickly and easily.', 'chat'],
+const landingNavLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'contact']]
+const assistantShortcuts = [
+  ['calendar', 'Appointments', 'Book or reschedule', 'coral', 'chat'],
+  ['hospital', 'Departments', 'Explore hospital care', 'cyan', 'services'],
+  ['chat', 'Quick answers', 'Ask anything, anytime', 'violet', 'chat'],
 ]
 const benefitItems = [
   ['shield', 'Private & Secure', 'Your data is protected and confidential.'],
@@ -91,23 +94,49 @@ function Ic({ name, className }) {
     info: <g {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 10.5v5" /><circle cx="12" cy="7.8" r="0.8" fill="currentColor" stroke="none" /></g>,
     arrowLeft: <path {...p} d="M15 5.5 8.5 12 15 18.5M8.5 12H20" />,
     arrowRight: <path {...p} d="M9 5.5 15.5 12 9 18.5M15.5 12H4" />,
+    sparkle: <path {...p} d="M12 3.5c.7 4.2 2.8 6.3 7 7-4.2.7-6.3 2.8-7 7-.7-4.2-2.8-6.3-7-7 4.2-.7 6.3-2.8 7-7z" />,
     check: <path {...p} d="m6.5 12.5 3.4 3.4 7.6-8" />,
   }
   return <svg viewBox="0 0 24 24" width="1em" height="1em" className={className} aria-hidden="true">{shapes[name]}</svg>
 }
 
 function Brand({ light = false, onClick }) {
-  return <button className={`brand ${light ? 'brand-light' : ''}`} type="button" onClick={onClick}><span className="brand-mark">✚</span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
+  return <button className={`brand ${light ? 'brand-light' : ''}`} type="button" onClick={onClick}><span className="brand-mark"><img src={shenazLogo} alt="" /></span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
 }
 
 function Header({ goTo }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [activeSection, setActiveSection] = useState('home')
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 24)
+      const marker = window.scrollY + Math.min(220, window.innerHeight * .32)
+      let currentSection = 'home'
+      landingNavLinks.forEach(([, sectionId]) => {
+        const section = document.getElementById(sectionId)
+        if (section && section.offsetTop <= marker) currentSection = sectionId
+      })
+      setActiveSection(currentSection)
+    }
+    handleScroll()
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  const scrollToSection = (sectionId) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setActiveSection(sectionId)
+    setMenuOpen(false)
+  }
+
   return (
-    <header className="site-header">
-      <Brand onClick={() => goTo('home')} />
+    <header className={`site-header ${scrolled ? 'is-scrolled' : ''}`}>
+      <Brand onClick={() => scrollToSection('home')} />
       <nav className={menuOpen ? 'open' : ''} aria-label="Primary">
-        {navLinks.map(([label, target], index) => (
-          <button className={index === 0 ? 'active' : ''} onClick={() => { goTo(target); setMenuOpen(false) }} key={label}>{label}</button>
+        {landingNavLinks.map(([label, target]) => (
+          <button className={activeSection === target ? 'active' : ''} aria-current={activeSection === target ? 'page' : undefined} onClick={() => scrollToSection(target)} key={label}>{label}</button>
         ))}
       </nav>
       <button className="menu-toggle" type="button" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
@@ -123,7 +152,7 @@ function Sidebar({ page, goTo }) {
   return (
     <aside className="sidebar">
       <button className="sidebar-brand" type="button" onClick={() => goTo('home')} aria-label="Shenaz home">
-        <span className="sidebar-brand-mark">✚</span>
+        <span className="sidebar-brand-mark"><img src={shenazLogo} alt="" /></span>
       </button>
       <nav className="side-menu" aria-label="App">
         {links.map(([icon, label, target]) => (
@@ -174,22 +203,46 @@ function Footer({ goTo }) {
   )
 }
 
-function VoiceAssistantVisual({ onStart }) {
+function VoiceAssistantVisual({ onStart, onNavigate }) {
   return (
     <div className="voice-visual">
-      <span className="visual-glow" aria-hidden="true" />
-      <span className="deco deco-plus dp1" aria-hidden="true">+</span>
-      <span className="deco deco-plus dp2" aria-hidden="true">+</span>
-      <span className="deco deco-dot dd1" aria-hidden="true" />
-      <span className="deco deco-dot dd2" aria-hidden="true" />
-      <span className="deco deco-dot dd3" aria-hidden="true" />
-      <span className="ring ring-1" aria-hidden="true" />
-      <span className="ring ring-2" aria-hidden="true" />
-      <span className="ring ring-3" aria-hidden="true" />
-      <div className="waveform" aria-hidden="true">{waveHeights.map((height, index) => <i key={index} style={{ height: `${height}px` }} />)}</div>
-      <button className="voice-mic" type="button" aria-label="Start Voice Chat" onClick={onStart}><Ic name="mic" /></button>
-      <div className="visual-float visual-float-status" aria-hidden="true"><span /><i><strong>Assistant online</strong><small>Ready to help 24/7</small></i></div>
-      <div className="visual-float visual-float-secure" aria-hidden="true"><Ic name="shield" /><span>Private by design</span></div>
+      <span className="console-aurora console-aurora-one" aria-hidden="true" />
+      <span className="console-aurora console-aurora-two" aria-hidden="true" />
+      <div className="voice-console">
+        <div className="console-header">
+          <div className="console-identity">
+            <span className="console-logo"><img src={shenazLogo} alt="" /></span>
+            <i><strong>Shenaz Care</strong><small>Your digital hospital guide</small></i>
+          </div>
+          <span className="console-live"><i /> Live</span>
+        </div>
+
+        <div className="console-stage">
+          <span className="voice-orbit voice-orbit-outer" aria-hidden="true" />
+          <span className="voice-orbit voice-orbit-inner" aria-hidden="true" />
+          <span className="orbit-particle particle-one" aria-hidden="true" />
+          <span className="orbit-particle particle-two" aria-hidden="true" />
+          <div className="console-wave" aria-hidden="true">
+            {waveHeights.slice(3, 14).map((height, index) => <i key={index} style={{ height: `${Math.max(12, height * .58)}px` }} />)}
+          </div>
+          <button className="voice-core" type="button" aria-label="Start Voice Chat" onClick={onStart}>
+            <span><Ic name="mic" /></span>
+          </button>
+          <div className="voice-prompt"><strong>How can I help?</strong><small>Tap to start speaking</small></div>
+        </div>
+
+        <div className="console-shortcuts" aria-label="Quick care options">
+          {assistantShortcuts.map(([icon, title, detail, color, target]) => (
+            <button className={`console-shortcut shortcut-${color}`} type="button" key={title} onClick={() => onNavigate(target)}>
+              <span><Ic name={icon} /></span>
+              <i><strong>{title}</strong><small>{detail}</small></i>
+              <Ic name="arrowRight" />
+            </button>
+          ))}
+        </div>
+
+        <div className="console-footer"><span><Ic name="shield" /> Secure conversation</span><span>Available 24/7</span></div>
+      </div>
     </div>
   )
 }
@@ -207,17 +260,19 @@ function Landing({ goTo }) {
         .from('.site-header', { y: -34, opacity: 0, duration: 0.75 })
         .from('.hero-copy h1', { y: 72, opacity: 0, skewY: 4, duration: 1.05 }, '-=0.35')
         .from('.hero-copy > p, .hero-actions, .hero-proof', { y: 34, opacity: 0, duration: 0.75, stagger: 0.13 }, '-=0.6')
-        .from('.voice-visual', { x: 80, scale: 0.82, opacity: 0, rotation: 4, duration: 1.15 }, '-=0.95')
-        .from('.action-card', { y: 42, opacity: 0, duration: 0.7, stagger: 0.13 }, '-=0.5')
+        .from('.voice-console', { x: 80, scale: 0.86, opacity: 0, rotationY: -8, duration: 1.15 }, '-=0.95')
+        .from('.console-shortcut', { y: 24, opacity: 0, duration: 0.55, stagger: 0.09 }, '-=0.45')
 
       gsap.to('.gradient-orb-one', { xPercent: 42, yPercent: 28, scale: 1.18, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut' })
       gsap.to('.gradient-orb-two', { xPercent: -34, yPercent: 32, scale: .86, duration: 9, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.ring-1', { rotation: 360, duration: 22, repeat: -1, ease: 'none' })
-      gsap.to('.ring-2', { rotation: -360, duration: 28, repeat: -1, ease: 'none' })
-      gsap.to('.visual-glow', { scale: 1.16, opacity: .66, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.waveform i', { scaleY: 1.35, duration: .75, repeat: -1, yoyo: true, stagger: { each: .055, from: 'center' }, ease: 'sine.inOut' })
-      gsap.to('.visual-float-status', { y: -14, x: 5, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.visual-float-secure', { y: 12, x: -5, duration: 2.9, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.voice-orbit-outer', { rotation: 360, duration: 18, repeat: -1, ease: 'none' })
+      gsap.to('.voice-orbit-inner', { rotation: -360, duration: 13, repeat: -1, ease: 'none' })
+      gsap.to('.voice-core', { scale: 1.055, duration: 1.7, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.console-wave i', { scaleY: 1.7, duration: .62, repeat: -1, yoyo: true, stagger: { each: .045, from: 'center' }, ease: 'sine.inOut' })
+      gsap.to('.console-aurora-one', { x: 34, y: -18, scale: 1.15, duration: 4.5, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.console-aurora-two', { x: -26, y: 22, scale: .88, duration: 5.4, repeat: -1, yoyo: true, ease: 'sine.inOut' })
+      gsap.to('.particle-one', { rotation: 360, transformOrigin: '102px 102px', duration: 9, repeat: -1, ease: 'none' })
+      gsap.to('.particle-two', { rotation: -360, transformOrigin: '-75px -75px', duration: 7, repeat: -1, ease: 'none' })
 
       gsap.utils.toArray('[data-reveal]').forEach((element) => {
         gsap.from(element, {
@@ -272,7 +327,7 @@ function Landing({ goTo }) {
         <div className="gradient-orb gradient-orb-two" aria-hidden="true" />
         <Header goTo={goTo} />
         <main>
-          <section className="hero-section">
+          <section className="hero-section" id="home">
             <div className="hero-copy">
               <h1 className="hero-reveal">Care begins with<br />a simple <span>hello.</span></h1>
               <p className="hero-reveal"><span className="hero-lead">Meet your always-available hospital assistant.</span> Ask about services, find the right doctor or book an appointment—just by speaking.</p>
@@ -286,19 +341,10 @@ function Landing({ goTo }) {
                 <span><strong>Secure</strong><small>Private support</small></span>
               </div>
             </div>
-            <VoiceAssistantVisual onStart={() => goTo('chat')} />
+            <VoiceAssistantVisual onStart={() => goTo('chat')} onNavigate={goTo} />
           </section>
 
-          <section className="action-cards" aria-label="Quick actions">
-            {actionCards.map(([icon, title, detail, target]) => (
-              <button className="action-card" key={title} type="button" onClick={() => goTo(target)}>
-                <span className="action-icon"><Ic name={icon} /></span>
-                <i><strong>{title}</strong><small>{detail}</small></i>
-              </button>
-            ))}
-          </section>
-
-          <section className="capabilities-section">
+          <section className="capabilities-section" id="services">
             <div className="section-heading" data-reveal>
               <div>
                 <p className="section-kicker">One connected experience</p>
@@ -318,7 +364,7 @@ function Landing({ goTo }) {
             </div>
           </section>
 
-          <section className="journey-section">
+          <section className="journey-section" id="about">
             <div className="journey-intro" data-reveal>
               <p className="section-kicker">Designed around you</p>
               <h2>Help that feels effortless.</h2>
@@ -344,7 +390,7 @@ function Landing({ goTo }) {
             ))}
           </section>
 
-          <section className="closing-cta" data-reveal>
+          <section className="closing-cta" id="contact" data-reveal>
             <span className="closing-glow" aria-hidden="true" />
             <div>
               <p className="section-kicker">Here when you need us</p>
@@ -1102,7 +1148,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 }
 
 function Services({ goTo }) { return <PageShell page="services" goTo={goTo}><Topbar title="Our Services" goTo={goTo} /><div className="content-page"><p className="eyebrow">CARE AT YOUR CONVENIENCE</p><h1>We&apos;re here to help</h1><p className="lead">Get answers and support from Shenaz Hospital whenever you need it.</p><div className="service-list">{serviceData.map(([icon, title, detail]) => <button key={title} onClick={() => goTo('chat')}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i><b>›</b></button>)}</div></div></PageShell> }
-function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark">✚</div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
+function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark"><img src={shenazLogo} alt="Shenaz Hospital" /></div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
 function History({ goTo, history }) { return <PageShell page="history" goTo={goTo}><Topbar title="Conversation History" goTo={goTo} /><div className="content-page history"><div className="search">⌕ <span>Search conversations...</span></div><div className="filters"><button className="active">All</button><button>Appointments</button><button>FAQs</button><button>General</button></div>{history.length ? history.map((item, index) => <article className="history-row" key={`${item.time}-${index}`}><span className={item.url ? 'history-icon success' : 'history-icon'}>{item.url ? '♬' : '!'}</span><i><strong>{item.status}</strong><small>Voice conversation · {item.time}</small></i>{item.url && <button onClick={() => new Audio(item.url).play()}>▶</button>}</article>) : <div className="empty-history"><span>◷</span><h2>No conversations yet</h2><p>Your voice conversations will appear here.</p><button className="button" onClick={() => goTo('chat')}>Start a voice chat</button></div>}</div></PageShell> }
 
 function App() {
