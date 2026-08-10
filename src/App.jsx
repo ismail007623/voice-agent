@@ -3,6 +3,14 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import doctorAvatar from './assets/ai-doctor-avatar.png'
 import shenazLogo from './assets/shenaz-logo.png'
+import { postVoiceAgent } from './services/voiceAgent'
+import {
+  isDeepgramConfigured,
+  isDeepgramPlaybackSupported,
+  stopDeepgramSpeech,
+  streamDeepgramSpeech,
+} from './services/deepgramTts'
+import { createSpeechRecognizer, isSpeechRecognitionSupported } from './utils/browserStt'
 import './App.css'
 
 const serviceData = [
@@ -12,41 +20,10 @@ const serviceData = [
   ['♡', 'Health Information', 'Guidance on general health questions'],
   ['✚', 'Emergency Support', '24/7 assistance for urgent needs'],
 ]
-const progressCopy = ['Transcribing your question...', 'Finding the right information...', 'Preparing your answer...']
-const API_BASE_URL = 'https://popular-subheader-endnote.ngrok-free.dev'
 const VAD_VOLUME_THRESHOLD = 0.03
 const VAD_SILENCE_TIMEOUT_MS = 1000
 const VAD_MIN_SPEECH_MS = 400
 const MEDIA_RECORDER_TIMESLICE_MS = 250
-const processingStageMessages = {
-  transcribing: 'Transcribing...',
-  loading_context: 'Loading conversation...',
-  generating_response: 'Generating response...',
-  saving_conversation: 'Saving conversation...',
-  synthesizing_audio: 'Creating voice response...',
-  streaming_audio: 'Receiving response...',
-}
-
-function getApiBaseUrl() {
-  return import.meta.env.VITE_API_BASE_URL || API_BASE_URL || window.location.origin
-}
-
-function getVoiceChatWsUrl() {
-  const base = getApiBaseUrl().trim().replace(/\/+$/, '')
-  const url = new URL(base)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  const basePath = url.pathname.replace(/\/+$/, '')
-  url.pathname = basePath.endsWith('/voice-chat/ws')
-    ? basePath
-    : `${basePath}/voice-chat/ws`.replace(/\/{2,}/g, '/')
-  url.search = ''
-  url.hash = ''
-  return url.toString()
-}
-
-function createRequestId() {
-  return crypto.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
 
 const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
 const landingNavLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'contact']]
@@ -418,45 +395,24 @@ function PageShell({ page, goTo, children }) {
   )
 }
 
-function getAgentStateLabel(agentState, processingMessage, error) {
-  switch (agentState) {
-    case 'disconnected':
-      return 'Start Voice Agent'
-    case 'connecting':
-      return 'Connecting...'
-    case 'listening':
-      return 'Listening...'
-    case 'user_speaking':
-      return "I'm listening..."
-    case 'processing':
-      return processingMessage || progressCopy[0]
-    case 'speaking':
-      return 'AI is speaking...'
-    case 'error':
-      return error || 'Something went wrong.'
-    default:
-      return ''
-  }
-}
-
 function getVoiceStatus(agentState, processingMessage, error) {
   switch (agentState) {
     case 'disconnected':
       return { tone: 'idle', text: 'Ready when you are' }
     case 'connecting':
-      return { tone: 'connecting', text: 'Connecting to agent…' }
+      return { tone: 'connecting', text: 'Starting call…' }
     case 'listening':
-      return { tone: 'listening', text: 'Listening' }
+      return { tone: 'listening', text: 'Listening…' }
     case 'user_speaking':
       return { tone: 'listening', text: 'Hearing you…' }
     case 'processing':
-      return { tone: 'processing', text: processingMessage || progressCopy[0] }
+      return { tone: 'processing', text: processingMessage || 'Processing…' }
     case 'speaking':
-      return { tone: 'speaking', text: 'Speaking' }
+      return { tone: 'speaking', text: 'Speaking…' }
     case 'error':
       return { tone: 'error', text: error || 'Something went wrong' }
     default:
-      return { tone: 'idle', text: getAgentStateLabel(agentState, processingMessage, error) }
+      return { tone: 'idle', text: '' }
   }
 }
 
@@ -529,9 +485,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const [userTranscript, setUserTranscript] = useState('')
   const [assistantText, setAssistantText] = useState('')
   const [vadLevel, setVadLevel] = useState(0)
-  const [activeRequestId, setActiveRequestId] = useState('')
 
-  const socket = useRef(null)
   const stream = useRef(null)
   const recorder = useRef(null)
   const audioContext = useRef(null)
@@ -540,25 +494,20 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const vadFrameId = useRef(null)
   const silenceTimer = useRef(null)
   const speechStartTime = useRef(0)
-  const responseAudioChunks = useRef([])
-  const assistantAudio = useRef(null)
-  const audioUrlRef = useRef('')
-  const responseComplete = useRef(true)
-  const playbackComplete = useRef(true)
-  const isReceivingAudio = useRef(false)
+  const recordingChunks = useRef([])
+  const speechRecognizer = useRef(null)
+  const abortController = useRef(null)
+  const ttsAbortController = useRef(null)
+  const ttsSession = useRef(null)
   const vadPaused = useRef(false)
-  const intentionalClose = useRef(false)
-  const handleVoiceEventRef = useRef(() => {})
+  const sessionActive = useRef(false)
+  const turnInProgress = useRef(false)
+  const ttsSpeaking = useRef(false)
   const agentStateRef = useRef('disconnected')
-  const agentConnectedRef = useRef(false)
-  const agentConnectingRef = useRef(false)
-  const activeRequestIdRef = useRef('')
   const conversationIdRef = useRef(conversationId)
   const beginUserTurnRef = useRef(() => {})
   const finishUserTurnRef = useRef(() => {})
   const tryResumeListeningRef = useRef(() => {})
-  const startVadLoopRef = useRef(() => {})
-  const stopVadLoopRef = useRef(() => {})
   const vadLevelFrame = useRef(0)
 
   const agentConnected = ['listening', 'user_speaking', 'processing', 'speaking'].includes(agentState)
@@ -566,13 +515,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
   useEffect(() => {
     agentStateRef.current = agentState
-    agentConnectedRef.current = agentConnected
-    agentConnectingRef.current = agentConnecting
-  }, [agentState, agentConnected, agentConnecting])
-
-  useEffect(() => {
-    activeRequestIdRef.current = activeRequestId
-  }, [activeRequestId])
+  }, [agentState])
 
   useEffect(() => {
     conversationIdRef.current = conversationId
@@ -580,32 +523,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
   const syncAgentState = (nextState) => {
     agentStateRef.current = nextState
-    agentConnectedRef.current = ['listening', 'user_speaking', 'processing', 'speaking'].includes(nextState)
-    agentConnectingRef.current = nextState === 'connecting'
     setAgentState(nextState)
-  }
-
-  const sendJson = (payload) => {
-    if (socket.current?.readyState === WebSocket.OPEN) {
-      socket.current.send(JSON.stringify(payload))
-    }
-  }
-
-  const sendFrontendRecordingEnd = (requestId) => {
-    if (!requestId) return
-    sendJson({ event: 'audio_end', request_id: requestId })
-  }
-
-  const sendBinaryChunk = async (blob) => {
-    if (!blob.size || socket.current?.readyState !== WebSocket.OPEN) return
-    const buffer = await blob.arrayBuffer()
-    if (socket.current?.readyState === WebSocket.OPEN) {
-      socket.current.send(buffer)
-    }
-  }
-
-  const revokeAudioUrl = (url = audioUrlRef.current) => {
-    if (url) URL.revokeObjectURL(url)
   }
 
   const resetMessageUi = () => {
@@ -630,13 +548,10 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   }
 
   const canStartTurn = () => {
-    if (socket.current?.readyState !== WebSocket.OPEN) return false
+    if (!sessionActive.current) return false
     if (agentStateRef.current !== 'listening') return false
-    if (activeRequestIdRef.current) return false
-    if (isReceivingAudio.current) return false
-    if (!playbackComplete.current) return false
-    const audio = assistantAudio.current
-    if (audio && !audio.paused && !audio.ended) return false
+    if (turnInProgress.current) return false
+    if (ttsSpeaking.current) return false
     return true
   }
 
@@ -681,107 +596,155 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       }
     }
 
-    console.debug('[voice] VAD started', { agentState: agentStateRef.current })
     vadFrameId.current = requestAnimationFrame(tick)
   }
 
   const tryResumeListening = () => {
-    if (
-      !agentConnectedRef.current ||
-      !responseComplete.current ||
-      !playbackComplete.current ||
-      activeRequestIdRef.current
-    ) {
-      return
-    }
+    if (!sessionActive.current || turnInProgress.current || ttsSpeaking.current) return
+    if (agentStateRef.current === 'processing') return
     vadPaused.current = false
+    setError('')
+    setProcessingMessage('')
     syncAgentState('listening')
     startVadLoop()
   }
 
-  const playResponseAudio = (url) => {
-    audioUrlRef.current = url
-    playbackComplete.current = false
-    syncAgentState('speaking')
-    vadPaused.current = true
-    stopVadLoop()
-
-    if (!assistantAudio.current) {
-      assistantAudio.current = new Audio()
-    }
-
-    const audio = assistantAudio.current
-    audio.onended = () => {
-      revokeAudioUrl(url)
-      audioUrlRef.current = ''
-      playbackComplete.current = true
-      tryResumeListeningRef.current()
-    }
-    audio.onerror = () => {
-      revokeAudioUrl(url)
-      audioUrlRef.current = ''
-      playbackComplete.current = true
-      tryResumeListeningRef.current()
-    }
-    audio.src = url
-    addHistory({
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: 'Answer received',
-      url,
-    })
-    audio.play().catch(() => {
-      playbackComplete.current = true
-      tryResumeListeningRef.current()
-    })
-  }
-
-  const handleBackendAudioEnd = () => {
-    isReceivingAudio.current = false
-    if (!responseAudioChunks.current.length) {
-      responseAudioChunks.current = []
-      playbackComplete.current = true
+  const speakAssistantReply = async (text) => {
+    if (!text?.trim()) {
       tryResumeListeningRef.current()
       return
     }
 
-    const blob = new Blob(responseAudioChunks.current, { type: 'audio/mpeg' })
-    responseAudioChunks.current = []
-    revokeAudioUrl()
-    const url = URL.createObjectURL(blob)
-    playResponseAudio(url)
+    ttsAbortController.current?.abort()
+    stopDeepgramSpeech(ttsSession.current)
+    ttsSession.current = null
+
+    const controller = new AbortController()
+    ttsAbortController.current = controller
+
+    ttsSpeaking.current = true
+    syncAgentState('speaking')
+    vadPaused.current = true
+    stopVadLoop()
+
+    try {
+      await streamDeepgramSpeech(text, {
+        signal: controller.signal,
+        onSession: (session) => {
+          ttsSession.current = session
+        },
+      })
+      if (!sessionActive.current) return
+      ttsSpeaking.current = false
+      ttsSession.current = null
+      if (ttsAbortController.current === controller) {
+        ttsAbortController.current = null
+      }
+      tryResumeListeningRef.current()
+    } catch (ttsError) {
+      if (ttsError.name === 'AbortError') return
+      if (!sessionActive.current) return
+
+      ttsSpeaking.current = false
+      ttsSession.current = null
+      if (ttsAbortController.current === controller) {
+        ttsAbortController.current = null
+      }
+      setError(ttsError.message || 'Could not play the assistant response. Please try again.')
+      tryResumeListeningRef.current()
+    }
+  }
+
+  const stopTts = () => {
+    ttsAbortController.current?.abort()
+    ttsAbortController.current = null
+    stopDeepgramSpeech(ttsSession.current)
+    ttsSession.current = null
+    ttsSpeaking.current = false
+  }
+
+  const submitTurn = async (transcript) => {
+    syncAgentState('processing')
+    setProcessingMessage('Processing…')
+
+    abortController.current?.abort()
+    const controller = new AbortController()
+    abortController.current = controller
+
+    try {
+      const result = await postVoiceAgent(
+        transcript,
+        conversationIdRef.current || null,
+        controller.signal,
+      )
+
+      if (!sessionActive.current) return
+
+      if (result.conversationId) {
+        setConversationId(result.conversationId)
+      }
+
+      setUserTranscript(transcript)
+      setAssistantText(result.text)
+      setProcessingMessage('')
+      setError('')
+
+      addHistory({
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: transcript.slice(0, 60) || 'Voice turn',
+        url: '',
+      })
+
+      turnInProgress.current = false
+      await speakAssistantReply(result.text)
+    } catch (requestError) {
+      if (requestError.name === 'AbortError') return
+      if (!sessionActive.current) return
+
+      turnInProgress.current = false
+      setProcessingMessage('')
+      setError(requestError.message || 'Something went wrong. Please try again.')
+      addHistory({
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: 'Could not complete',
+        url: '',
+      })
+      tryResumeListeningRef.current()
+    } finally {
+      if (abortController.current === controller) {
+        abortController.current = null
+      }
+    }
   }
 
   const beginUserTurn = () => {
     if (!canStartTurn() || !stream.current) return
 
-    console.debug('[voice] speech detected')
     clearSilenceTimer()
     stopVadLoop()
 
-    const requestId = createRequestId()
-    activeRequestIdRef.current = requestId
-    setActiveRequestId(requestId)
-    responseComplete.current = false
-    playbackComplete.current = true
+    turnInProgress.current = true
     speechStartTime.current = Date.now()
+    recordingChunks.current = []
     setError('')
     setUserTranscript('')
     setAssistantText('')
 
-    sendJson({
-      event: 'start',
-      request_id: requestId,
-      conversation_id: conversationIdRef.current || null,
-      audio_format: 'audio/webm',
-    })
-    console.debug('[voice] start sent', { request_id: requestId })
+    try {
+      speechRecognizer.current = createSpeechRecognizer({ lang: 'en-US' })
+      speechRecognizer.current.start()
+    } catch {
+      turnInProgress.current = false
+      setError('Speech recognition failed to start. Please try again.')
+      tryResumeListeningRef.current()
+      return
+    }
 
     const mediaRecorder = new MediaRecorder(stream.current)
     recorder.current = mediaRecorder
 
     mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size) console.debug('[voice] chunk sent', event.data.size)
-      sendBinaryChunk(event.data)
+      if (event.data.size) recordingChunks.current.push(event.data)
     }
 
     mediaRecorder.onstop = () => {
@@ -793,34 +756,55 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     startVadLoop()
   }
 
-  const finishUserTurn = () => {
+  const finishUserTurn = async () => {
     clearSilenceTimer()
     stopVadLoop()
     vadPaused.current = true
 
-    const requestId = activeRequestIdRef.current
     const speechDuration = Date.now() - speechStartTime.current
     const isShortSpeech = speechDuration < VAD_MIN_SPEECH_MS
 
-    if (recorder.current?.state === 'recording') {
-      const currentRecorder = recorder.current
-      currentRecorder.onstop = () => {
-        recorder.current = null
-        sendFrontendRecordingEnd(requestId)
-        console.debug('[voice] audio_end sent', { request_id: requestId })
-        syncAgentState('processing')
-        setProcessingMessage(progressCopy[0])
-        if (isShortSpeech) {
-          setError('')
+    const stopRecorder = () => new Promise((resolve) => {
+      if (recorder.current?.state === 'recording') {
+        const currentRecorder = recorder.current
+        currentRecorder.onstop = () => {
+          recorder.current = null
+          resolve()
         }
+        currentRecorder.stop()
+      } else {
+        resolve()
       }
-      currentRecorder.stop()
-    } else {
-      sendFrontendRecordingEnd(requestId)
-      console.debug('[voice] audio_end sent', { request_id: requestId })
-      syncAgentState('processing')
-      setProcessingMessage(progressCopy[0])
+    })
+
+    await stopRecorder()
+
+    let transcript = ''
+    try {
+      if (speechRecognizer.current) {
+        transcript = await speechRecognizer.current.stop()
+        speechRecognizer.current = null
+      }
+    } catch (sttError) {
+      speechRecognizer.current = null
+      turnInProgress.current = false
+      if (!isShortSpeech) {
+        setError(sttError.message || 'Could not transcribe your speech. Please try again.')
+      }
+      tryResumeListeningRef.current()
+      return
     }
+
+    if (isShortSpeech || !transcript.trim()) {
+      turnInProgress.current = false
+      if (!isShortSpeech) {
+        setError('No speech detected. Please try again.')
+      }
+      tryResumeListeningRef.current()
+      return
+    }
+
+    await submitTurn(transcript.trim())
   }
 
   const releaseAudioGraph = async () => {
@@ -838,29 +822,19 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     stream.current = null
   }
 
-  const stopAssistantPlayback = () => {
-    const audio = assistantAudio.current
-    if (audio) {
-      audio.onended = null
-      audio.onerror = null
-      audio.pause()
-      audio.removeAttribute('src')
-      audio.load()
-    }
-    revokeAudioUrl()
-    audioUrlRef.current = ''
-    playbackComplete.current = true
-  }
-
-  const teardownVoiceSession = ({ closeSocket = true, sendActiveRecordingEnd = false } = {}) => {
-    intentionalClose.current = true
+  const teardownVoiceSession = () => {
+    sessionActive.current = false
     vadPaused.current = true
     stopVadLoop()
+    turnInProgress.current = false
 
-    const requestId = activeRequestIdRef.current
-    if (sendActiveRecordingEnd && requestId) {
-      sendFrontendRecordingEnd(requestId)
-    }
+    abortController.current?.abort()
+    abortController.current = null
+
+    stopTts()
+
+    speechRecognizer.current?.abort()
+    speechRecognizer.current = null
 
     if (recorder.current?.state === 'recording') {
       recorder.current.onstop = null
@@ -868,38 +842,13 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       recorder.current = null
     }
 
-    stopAssistantPlayback()
     releaseStream()
     releaseAudioGraph()
-
-    if (closeSocket && socket.current) {
-      socket.current.onopen = null
-      socket.current.onmessage = null
-      socket.current.onerror = null
-      socket.current.onclose = null
-      if (socket.current.readyState === WebSocket.OPEN || socket.current.readyState === WebSocket.CONNECTING) {
-        socket.current.close()
-      }
-      socket.current = null
-    }
-
-    setActiveRequestId('')
-    activeRequestIdRef.current = ''
-    responseAudioChunks.current = []
-    isReceivingAudio.current = false
-    responseComplete.current = true
-    playbackComplete.current = true
-    intentionalClose.current = false
+    recordingChunks.current = []
   }
 
   const endVoiceAgent = (closeMessage = '') => {
-    const wasRecording = recorder.current?.state === 'recording'
-    const requestId = activeRequestIdRef.current
-    if (wasRecording && requestId) {
-      sendFrontendRecordingEnd(requestId)
-    }
-
-    teardownVoiceSession({ closeSocket: true })
+    teardownVoiceSession()
     setConversationId('')
     resetMessageUi()
     setError(closeMessage)
@@ -907,90 +856,22 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     setVadLevel(0)
   }
 
-  const handleVoiceEvent = (message) => {
-    const { event: eventName } = message
-
-    switch (eventName) {
-      case 'connected':
-        console.debug('[voice] connected', message)
-        if (message.conversation_id) setConversationId(message.conversation_id)
-        responseComplete.current = true
-        playbackComplete.current = true
-        setError('')
-        syncAgentState('listening')
-        startVadLoopRef.current()
-        break
-      case 'recording_started':
-      case 'recording_received':
-        break
-      case 'processing':
-        setProcessingMessage(processingStageMessages[message.stage] || progressCopy[0])
-        syncAgentState('processing')
-        vadPaused.current = true
-        stopVadLoopRef.current()
-        break
-      case 'transcription':
-        setUserTranscript(message.text || message.transcript || message.content || '')
-        break
-      case 'assistant_text':
-        setAssistantText(message.text || message.content || '')
-        break
-      case 'audio_start':
-        responseAudioChunks.current = []
-        isReceivingAudio.current = true
-        vadPaused.current = true
-        stopVadLoopRef.current()
-        break
-      case 'audio_end':
-        handleBackendAudioEnd()
-        break
-      case 'response_complete':
-        responseComplete.current = true
-        activeRequestIdRef.current = ''
-        setActiveRequestId('')
-        setProcessingMessage('')
-        isReceivingAudio.current = false
-        tryResumeListeningRef.current()
-        break
-      case 'error': {
-        const recoverable = message.recoverable !== false
-        const errorMessage = message.message || 'Something went wrong. Please try again.'
-        responseComplete.current = true
-        activeRequestIdRef.current = ''
-        setActiveRequestId('')
-        setProcessingMessage('')
-        isReceivingAudio.current = false
-        responseAudioChunks.current = []
-        addHistory({
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          status: 'Could not complete',
-          url: '',
-        })
-        if (recoverable) {
-          setError(errorMessage)
-          playbackComplete.current = true
-          tryResumeListeningRef.current()
-        } else {
-          endVoiceAgent(errorMessage)
-          syncAgentState('error')
-        }
-        break
-      }
-      default:
-        break
-    }
-  }
-
   beginUserTurnRef.current = beginUserTurn
   finishUserTurnRef.current = finishUserTurn
   tryResumeListeningRef.current = tryResumeListening
-  startVadLoopRef.current = startVadLoop
-  stopVadLoopRef.current = stopVadLoop
-  handleVoiceEventRef.current = handleVoiceEvent
 
   const setupAudioInput = async () => {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       throw new Error('Voice recording is not supported in this browser. Please use a recent browser and try again.')
+    }
+    if (!isSpeechRecognitionSupported()) {
+      throw new Error('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.')
+    }
+    if (!isDeepgramConfigured()) {
+      throw new Error('Deepgram API key not configured.')
+    }
+    if (!isDeepgramPlaybackSupported()) {
+      throw new Error('Streaming audio playback is not supported in this browser.')
     }
 
     stream.current = await navigator.mediaDevices.getUserMedia({
@@ -1016,7 +897,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   }
 
   const startVoiceAgent = async () => {
-    if (agentConnecting || agentConnected || socket.current) return
+    if (agentConnecting || agentConnected) return
 
     setError('')
     syncAgentState('connecting')
@@ -1026,54 +907,13 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     } catch (setupError) {
       setError(setupError.message || 'Microphone access is needed. Please allow it in browser settings and try again.')
       syncAgentState('error')
-      teardownVoiceSession({ closeSocket: false })
+      teardownVoiceSession()
       return
     }
 
-    const ws = new WebSocket(getVoiceChatWsUrl())
-    ws.binaryType = 'arraybuffer'
-    socket.current = ws
-
-    ws.onmessage = (event) => {
-      if (typeof event.data === 'string') {
-        try {
-          handleVoiceEventRef.current(JSON.parse(event.data))
-        } catch {
-          setError('Received an invalid message from the voice service.')
-          syncAgentState('error')
-        }
-        return
-      }
-      if (isReceivingAudio.current) {
-        responseAudioChunks.current.push(event.data)
-      }
-    }
-
-    ws.onerror = () => {
-      if (intentionalClose.current) return
-      if (!agentConnectedRef.current) {
-        setError('Could not connect to the voice agent. Please try again.')
-        syncAgentState('error')
-        teardownVoiceSession({ closeSocket: true })
-      }
-    }
-
-    ws.onclose = () => {
-      if (intentionalClose.current) {
-        socket.current = null
-        return
-      }
-      if (agentStateRef.current === 'connecting') {
-        setError((current) => current || 'Voice agent connection closed before it was ready.')
-        syncAgentState('error')
-        teardownVoiceSession({ closeSocket: false })
-      } else if (agentConnectedRef.current) {
-        setError((current) => current || 'Voice agent disconnected.')
-        syncAgentState('disconnected')
-        teardownVoiceSession({ closeSocket: false })
-      }
-      socket.current = null
-    }
+    sessionActive.current = true
+    syncAgentState('listening')
+    startVadLoop()
   }
 
   const handleNewChat = () => {
@@ -1082,11 +922,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   }
 
   useEffect(() => () => {
-    const requestId = activeRequestIdRef.current
-    if (recorder.current?.state === 'recording' && requestId) {
-      sendFrontendRecordingEnd(requestId)
-    }
-    teardownVoiceSession({ closeSocket: true })
+    teardownVoiceSession()
     setConversationId('')
   }, [setConversationId])
 
@@ -1113,7 +949,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               disabled={agentConnected || agentConnecting}
             >
               <Ic name="mic" />
-              <span>Start</span>
+              <span>Start Call</span>
             </button>
             <button
               className="call-button call-end"
@@ -1122,7 +958,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               disabled={!agentConnected && !agentConnecting}
             >
               <Ic name="hangup" />
-              <span>End</span>
+              <span>End Call</span>
             </button>
           </div>
           {showTranscript && (
