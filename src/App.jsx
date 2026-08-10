@@ -27,11 +27,47 @@ const MEDIA_RECORDER_TIMESLICE_MS = 250
 
 const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
 const landingNavLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'contact']]
-const assistantShortcuts = [
-  ['calendar', 'Appointments', 'Book or reschedule', 'coral', 'chat'],
-  ['hospital', 'Departments', 'Explore hospital care', 'cyan', 'services'],
-  ['chat', 'Quick answers', 'Ask anything, anytime', 'violet', 'chat'],
+const voiceProcessSteps = [
+  { id: 'listen', n: '1', title: 'Listening', detail: 'Capturing your voice…', tone: 'teal', angle: 0, side: 'end' },
+  { id: 'understand', n: '2', title: 'Understanding', detail: 'Analyzing your request…', tone: 'cyan', angle: 75, side: 'end' },
+  { id: 'speak', n: '3', title: 'Speaking', detail: 'Replying to you…', tone: 'blue', angle: 155, side: 'start' },
+  { id: 'ready', n: '4', title: 'Ready', detail: 'Ready for next question', tone: 'violet', angle: 235, side: 'start', showCheck: true },
 ]
+const PROCESS_RING_R = 132
+// Orbit SVG is inset 4% (92% of stage); ring r/160 of that half → ~37.95% from center
+const PROCESS_STEP_R = 0.3795
+// 0° = top, clockwise
+function processPolar(angleDeg, r = PROCESS_RING_R, cx = 160, cy = 160) {
+  const rad = (angleDeg * Math.PI) / 180
+  return [cx + r * Math.sin(rad), cy - r * Math.cos(rad)]
+}
+function stepPercentPos(angleDeg, r = PROCESS_STEP_R) {
+  const rad = (angleDeg * Math.PI) / 180
+  return {
+    left: `${50 + Math.sin(rad) * r * 100}%`,
+    top: `${50 - Math.cos(rad) * r * 100}%`,
+  }
+}
+const voiceProcessLinks = voiceProcessSteps.slice(0, -1).map((step, index) => {
+  const next = voiceProcessSteps[index + 1]
+  const span = next.angle - step.angle
+  const length = (2 * Math.PI * PROCESS_RING_R) * (span / 360)
+  const [x1, y1] = processPolar(step.angle)
+  const [x2, y2] = processPolar(next.angle)
+  const largeArc = span > 180 ? 1 : 0
+  return {
+    id: `${step.id}-${next.id}`,
+    d: `M ${x1} ${y1} A ${PROCESS_RING_R} ${PROCESS_RING_R} 0 ${largeArc} 1 ${x2} ${y2}`,
+    length,
+  }
+})
+// Smooth circular envelope — gentle lobes, no spikes
+const WAVE_TICK_COUNT = 56
+const WAVE_TICKS = Array.from({ length: WAVE_TICK_COUNT }, (_, i) => {
+  const t = (i / WAVE_TICK_COUNT) * Math.PI * 2
+  return 6.5 + Math.sin(t * 3) * 2 + Math.sin(t * 5 + 0.4) * 1.2
+})
+const STAGE_DUST_COUNT = 10
 const benefitItems = [
   ['shield', 'Private & Secure', 'Your data is protected and confidential.'],
   ['clock', 'Always Available', 'Get help anytime, day or night.'],
@@ -47,7 +83,50 @@ const journeySteps = [
   ['02', 'We understand', 'Our assistant finds the most relevant hospital information.'],
   ['03', 'Move forward', 'Get an answer, choose a service or take the next action.'],
 ]
-const waveHeights = [18, 28, 42, 56, 70, 52, 36, 48, 64, 40, 24, 34, 50, 62, 44, 30, 22]
+const chatOrbitSteps = [
+  { id: 'listen', icon: 'mic', title: 'Listening', detail: 'Capturing your voice…', angle: 0, side: 'top' },
+  { id: 'understand', icon: 'sparkle', title: 'Understanding', detail: 'Analyzing your request…', angle: 72, side: 'end' },
+  { id: 'find', icon: 'pin', title: 'Finding Options', detail: 'Searching doctors & availability…', angle: 144, side: 'end' },
+  { id: 'action', icon: 'calendar', title: 'Taking Action', detail: 'Working on your request…', angle: 216, side: 'start' },
+  { id: 'respond', icon: 'check', title: 'Responding', detail: 'Preparing the best response…', angle: 288, side: 'start' },
+]
+const CHAT_ORBIT_R = 148
+const CHAT_STEP_R = 0.42
+const CHAT_WAVE_COUNT = 64
+const CHAT_WAVE_TICKS = Array.from({ length: CHAT_WAVE_COUNT }, (_, i) => {
+  const t = (i / CHAT_WAVE_COUNT) * Math.PI * 2
+  return 5.5 + Math.sin(t * 4) * 2.2 + Math.sin(t * 7 + 0.5) * 1.1
+})
+function chatOrbitPolar(angleDeg, r = CHAT_ORBIT_R, cx = 200, cy = 200) {
+  const rad = (angleDeg * Math.PI) / 180
+  return [cx + r * Math.sin(rad), cy - r * Math.cos(rad)]
+}
+function chatStepPercentPos(angleDeg, r = CHAT_STEP_R) {
+  const rad = (angleDeg * Math.PI) / 180
+  return {
+    left: `${50 + Math.sin(rad) * r * 100}%`,
+    top: `${50 - Math.cos(rad) * r * 100}%`,
+  }
+}
+function getChatOrbitStep(agentState) {
+  switch (agentState) {
+    case 'listening':
+    case 'user_speaking':
+    case 'connecting':
+      return 0
+    case 'processing':
+      return 1
+    case 'speaking':
+      return 4
+    default:
+      return null
+  }
+}
+const chatServiceChips = [
+  { icon: 'calendar', label: 'Book an appointment' },
+  { icon: 'pin', label: 'Find a doctor' },
+  { icon: 'hospital', label: 'Hospital services' },
+]
 
 function Ic({ name, className }) {
   const p = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
@@ -180,45 +259,258 @@ function Footer({ goTo }) {
   )
 }
 
-function VoiceAssistantVisual({ onStart, onNavigate }) {
+function VoiceAgentVisualizer({ voiceState = 'idle', onStart }) {
+  const rootRef = useRef(null)
+  const [activeStep, setActiveStep] = useState(0)
+
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+
+    const context = gsap.context(() => {
+      const steps = [...root.querySelectorAll('.vav-step')]
+      const nodes = [...root.querySelectorAll('.vav-step-node')]
+      const dots = [...root.querySelectorAll('.vav-step-dot')]
+      const links = [...root.querySelectorAll('.vav-link-active')]
+      const beacon = root.querySelector('.vav-beacon')
+      const ticks = root.querySelectorAll('.vav-wave-tick')
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+      const applyStep = (index, { pulse = true } = {}) => {
+        setActiveStep(index)
+        steps.forEach((step, i) => {
+          step.classList.toggle('is-active', i === index)
+          step.classList.toggle('is-done', i < index)
+          step.classList.toggle('is-upcoming', i > index)
+        })
+        dots.forEach((dot, i) => {
+          dot.classList.toggle('is-active', i === index)
+          dot.classList.toggle('is-done', i < index)
+        })
+        links.forEach((link, i) => {
+          link.classList.toggle('is-lit', i < index)
+          link.classList.toggle('is-drawing', false)
+        })
+        gsap.to(nodes, { scale: 1, duration: 0.28, ease: 'power2.out', overwrite: 'auto' })
+        if (nodes[index] && pulse) {
+          gsap.fromTo(
+            nodes[index],
+            { scale: 1 },
+            { scale: 1.16, duration: 0.38, ease: 'back.out(1.8)', yoyo: true, repeat: 1, overwrite: 'auto' },
+          )
+        } else if (nodes[index]) {
+          gsap.to(nodes[index], { scale: 1.1, duration: 0.3, ease: 'power2.out', overwrite: 'auto' })
+        }
+      }
+
+      links.forEach((link, i) => {
+        const len = voiceProcessLinks[i]?.length || 100
+        gsap.set(link, { strokeDasharray: len, strokeDashoffset: len, opacity: 0.25 })
+      })
+      gsap.set(beacon, { rotation: voiceProcessSteps[0].angle, transformOrigin: '50% 50%' })
+      gsap.set(steps, { clearProps: 'opacity,visibility' })
+      applyStep(0, { pulse: false })
+
+      if (reduceMotion) {
+        links.forEach((link) => gsap.set(link, { strokeDashoffset: 0, opacity: 1 }))
+        links.forEach((link) => link.classList.add('is-lit'))
+        steps.forEach((step) => {
+          step.classList.add('is-done')
+          step.classList.remove('is-upcoming', 'is-active')
+        })
+        steps[0]?.classList.add('is-active')
+        dots.forEach((dot, i) => {
+          dot.classList.toggle('is-active', i === 0)
+          dot.classList.toggle('is-done', i > 0)
+        })
+        return
+      }
+
+      const timeline = gsap.timeline({ repeat: -1, defaults: { ease: 'power1.inOut' } })
+
+      // Hold on step → draw connector to next → glow arrives on destination
+      voiceProcessSteps.forEach((step, index) => {
+        const label = `step${index}`
+        timeline.add(label)
+        if (index === 0) {
+          timeline.add(() => applyStep(0, { pulse: false }), label)
+        }
+        timeline.to({}, { duration: 0.55 })
+
+        if (index < voiceProcessLinks.length) {
+          const link = links[index]
+          const next = voiceProcessSteps[index + 1]
+          timeline.add(() => {
+            link.classList.add('is-drawing')
+            link.classList.remove('is-lit')
+          })
+          timeline.fromTo(
+            link,
+            { strokeDashoffset: voiceProcessLinks[index].length, opacity: 0.45 },
+            { strokeDashoffset: 0, opacity: 1, duration: 1.35, ease: 'power1.inOut' },
+          )
+          timeline.to(beacon, { rotation: next.angle, duration: 1.35, ease: 'power1.inOut' }, '<')
+          timeline.add(() => {
+            link.classList.remove('is-drawing')
+            link.classList.add('is-lit')
+            applyStep(index + 1, { pulse: true })
+          })
+          timeline.to({}, { duration: 0.4 })
+        } else {
+          timeline.to({}, { duration: 1.0 })
+        }
+      })
+
+      timeline
+        .to(links, {
+          strokeDashoffset: (i) => voiceProcessLinks[i]?.length || 100,
+          opacity: 0.25,
+          duration: 0.5,
+          stagger: 0.03,
+          ease: 'power2.in',
+        })
+        .to(beacon, { rotation: voiceProcessSteps[0].angle + 360, duration: 0.5, ease: 'power2.in' }, '<')
+        .set(beacon, { rotation: voiceProcessSteps[0].angle })
+        .add(() => {
+          links.forEach((link) => {
+            link.classList.remove('is-lit', 'is-drawing')
+          })
+          steps.forEach((step) => {
+            step.classList.remove('is-active', 'is-done')
+            step.classList.add('is-upcoming')
+          })
+          dots.forEach((dot) => {
+            dot.classList.remove('is-active', 'is-done')
+          })
+        })
+
+      gsap.to(root.querySelector('.vav-mic'), {
+        scale: 1.03,
+        duration: 2.8,
+        repeat: -1,
+        yoyo: true,
+        ease: 'sine.inOut',
+      })
+
+      if (ticks.length) {
+        gsap.to(ticks, {
+          scaleY: 0.82,
+          duration: 0.85,
+          repeat: -1,
+          yoyo: true,
+          ease: 'sine.inOut',
+          stagger: { each: 0.028, from: 'start' },
+        })
+      }
+    }, root)
+
+    return () => context.revert()
+  }, [])
+
   return (
-    <div className="voice-visual">
-      <span className="console-aurora console-aurora-one" aria-hidden="true" />
-      <span className="console-aurora console-aurora-two" aria-hidden="true" />
-      <div className="voice-console">
-        <div className="console-header">
-          <div className="console-identity">
-            <span className="console-logo"><img src={shenazLogo} alt="" /></span>
-            <i><strong>Shenaz Care</strong><small>Your digital hospital guide</small></i>
-          </div>
-          <span className="console-live"><i /> Live</span>
-        </div>
-
-        <div className="console-stage">
-          <span className="voice-orbit voice-orbit-outer" aria-hidden="true" />
-          <span className="voice-orbit voice-orbit-inner" aria-hidden="true" />
-          <span className="orbit-particle particle-one" aria-hidden="true" />
-          <span className="orbit-particle particle-two" aria-hidden="true" />
-          <div className="console-wave" aria-hidden="true">
-            {waveHeights.slice(3, 14).map((height, index) => <i key={index} style={{ height: `${Math.max(12, height * .58)}px` }} />)}
-          </div>
-          <button className="voice-core" type="button" aria-label="Start Voice Chat" onClick={onStart}>
-            <span><Ic name="mic" /></span>
-          </button>
-          <div className="voice-prompt"><strong>How can I help?</strong><small>Tap to start speaking</small></div>
-        </div>
-
-        <div className="console-shortcuts" aria-label="Quick care options">
-          {assistantShortcuts.map(([icon, title, detail, color, target]) => (
-            <button className={`console-shortcut shortcut-${color}`} type="button" key={title} onClick={() => onNavigate(target)}>
-              <span><Ic name={icon} /></span>
-              <i><strong>{title}</strong><small>{detail}</small></i>
-              <Ic name="arrowRight" />
-            </button>
+    <div
+      ref={rootRef}
+      className={`voice-visual vav vav-radial-wrap vav-${voiceState}`}
+      data-voice-state={voiceState}
+      data-active-step={voiceProcessSteps[activeStep]?.id}
+    >
+      <div className="vav-radial">
+        <div className="vav-stage-bg" aria-hidden="true">
+          <span className="vav-grid" />
+          <span className="vav-aura vav-aura-1" />
+          <span className="vav-aura vav-aura-2" />
+          <span className="vav-aura vav-aura-3" />
+          <span className="vav-glow" />
+          {Array.from({ length: STAGE_DUST_COUNT }, (_, i) => (
+            <i className={`vav-dust vav-dust-${i + 1}`} key={i} />
           ))}
         </div>
 
-        <div className="console-footer"><span><Ic name="shield" /> Secure conversation</span><span>Available 24/7</span></div>
+        <svg className="vav-orbit" viewBox="0 0 320 320" aria-hidden="true">
+          <defs>
+            <linearGradient id="vavProcessGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#55f2af" />
+              <stop offset="35%" stopColor="#29d7b3" />
+              <stop offset="70%" stopColor="#47d9ed" />
+              <stop offset="100%" stopColor="#7eb4ff" />
+            </linearGradient>
+            <filter id="vavGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="3.6" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+          <circle className="vav-ring-track" cx="160" cy="160" r={PROCESS_RING_R} fill="none" />
+          <circle className="vav-ring-dots" cx="160" cy="160" r={PROCESS_RING_R} fill="none" />
+          {voiceProcessLinks.map((seg) => (
+            <path key={`base-${seg.id}`} className="vav-link-base" d={seg.d} fill="none" />
+          ))}
+          {voiceProcessLinks.map((seg) => (
+            <path
+              key={`active-${seg.id}`}
+              className="vav-link-active"
+              d={seg.d}
+              fill="none"
+              filter="url(#vavGlow)"
+            />
+          ))}
+          {voiceProcessSteps.map((step) => {
+            const [cx, cy] = processPolar(step.angle)
+            return (
+              <circle
+                key={`dot-${step.id}`}
+                className={`vav-step-dot vav-step-dot-${step.tone}`}
+                cx={cx}
+                cy={cy}
+                r="4.5"
+              />
+            )
+          })}
+        </svg>
+
+        <div className="vav-beacon" aria-hidden="true"><i /></div>
+
+        <div className="vav-wave-ring" aria-hidden="true">
+          {WAVE_TICKS.map((height, index) => (
+            <span
+              key={index}
+              className="vav-wave-spoke"
+              style={{ '--tick-angle': `${(360 / WAVE_TICKS.length) * index}deg` }}
+            >
+              <i className="vav-wave-tick" style={{ '--tick-h': `${height}px` }} />
+            </span>
+          ))}
+        </div>
+
+        {voiceProcessSteps.map((step, index) => {
+          const pos = stepPercentPos(step.angle)
+          return (
+            <div
+              className={`vav-step vav-step-${step.tone} vav-side-${step.side}${activeStep === index ? ' is-active' : index < activeStep ? ' is-done' : ' is-upcoming'}`}
+              key={step.id}
+              style={pos}
+            >
+              <div className="vav-step-inner">
+                <span className="vav-step-node">
+                  {step.showCheck && activeStep >= index ? <Ic name="check" /> : step.n}
+                </span>
+                <div className="vav-step-copy">
+                  <strong>{step.title}</strong>
+                  <small>{step.detail}</small>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+
+        <button className="vav-mic" type="button" aria-label="Start Voice Chat" onClick={onStart}>
+          <span className="vav-mic-glass" />
+          <span className="vav-mic-icon"><Ic name="mic" /></span>
+        </button>
+
+        <div className="vav-ready" aria-live="polite">READY</div>
       </div>
     </div>
   )
@@ -237,19 +529,11 @@ function Landing({ goTo }) {
         .from('.site-header', { y: -34, opacity: 0, duration: 0.75 })
         .from('.hero-copy h1', { y: 72, opacity: 0, skewY: 4, duration: 1.05 }, '-=0.35')
         .from('.hero-copy > p, .hero-actions, .hero-proof', { y: 34, opacity: 0, duration: 0.75, stagger: 0.13 }, '-=0.6')
-        .from('.voice-console', { x: 80, scale: 0.86, opacity: 0, rotationY: -8, duration: 1.15 }, '-=0.95')
-        .from('.console-shortcut', { y: 24, opacity: 0, duration: 0.55, stagger: 0.09 }, '-=0.45')
+        .from('.vav-radial', { x: 56, scale: 0.9, opacity: 0, duration: 1.05 }, '-=0.95')
+        .from('.vav-mic, .vav-ready', { opacity: 0, scale: 0.92, duration: 0.55 }, '-=0.35')
 
       gsap.to('.gradient-orb-one', { xPercent: 42, yPercent: 28, scale: 1.18, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut' })
       gsap.to('.gradient-orb-two', { xPercent: -34, yPercent: 32, scale: .86, duration: 9, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.voice-orbit-outer', { rotation: 360, duration: 18, repeat: -1, ease: 'none' })
-      gsap.to('.voice-orbit-inner', { rotation: -360, duration: 13, repeat: -1, ease: 'none' })
-      gsap.to('.voice-core', { scale: 1.055, duration: 1.7, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.console-wave i', { scaleY: 1.7, duration: .62, repeat: -1, yoyo: true, stagger: { each: .045, from: 'center' }, ease: 'sine.inOut' })
-      gsap.to('.console-aurora-one', { x: 34, y: -18, scale: 1.15, duration: 4.5, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.console-aurora-two', { x: -26, y: 22, scale: .88, duration: 5.4, repeat: -1, yoyo: true, ease: 'sine.inOut' })
-      gsap.to('.particle-one', { rotation: 360, transformOrigin: '102px 102px', duration: 9, repeat: -1, ease: 'none' })
-      gsap.to('.particle-two', { rotation: -360, transformOrigin: '-75px -75px', duration: 7, repeat: -1, ease: 'none' })
 
       gsap.utils.toArray('[data-reveal]').forEach((element) => {
         gsap.from(element, {
@@ -318,7 +602,7 @@ function Landing({ goTo }) {
                 <span><strong>Secure</strong><small>Private support</small></span>
               </div>
             </div>
-            <VoiceAssistantVisual onStart={() => goTo('chat')} onNavigate={goTo} />
+            <VoiceAgentVisualizer voiceState="idle" onStart={() => goTo('chat')} />
           </section>
 
           <section className="capabilities-section" id="services">
@@ -398,9 +682,9 @@ function PageShell({ page, goTo, children }) {
 function getVoiceStatus(agentState, processingMessage, error) {
   switch (agentState) {
     case 'disconnected':
-      return { tone: 'idle', text: 'Ready when you are' }
+      return { tone: 'idle', text: 'Ready to help.' }
     case 'connecting':
-      return { tone: 'connecting', text: 'Starting call…' }
+      return { tone: 'connecting', text: 'Starting voice chat…' }
     case 'listening':
       return { tone: 'listening', text: 'Listening…' }
     case 'user_speaking':
@@ -412,7 +696,7 @@ function getVoiceStatus(agentState, processingMessage, error) {
     case 'error':
       return { tone: 'error', text: error || 'Something went wrong' }
     default:
-      return { tone: 'idle', text: '' }
+      return { tone: 'idle', text: 'Ready to help.' }
   }
 }
 
@@ -426,34 +710,146 @@ function computeAnalyserRms(analyser, buffer) {
   return Math.sqrt(sum / buffer.length)
 }
 
-function VoiceWave({ side, agentState, vadLevel }) {
-  const heights = side === 'left' ? [...waveHeights].reverse() : waveHeights
-  const active = agentState === 'user_speaking' || agentState === 'speaking' || agentState === 'listening'
-
-  return (
-    <div className={`voice-flank-wave voice-flank-${side} ${active ? 'is-active' : ''}`} aria-hidden="true">
-      {heights.map((height, index) => {
-        let scale = 0.45
-        if (agentState === 'user_speaking') scale = 0.55 + Math.min(vadLevel, 0.25) * 4
-        else if (agentState === 'speaking') scale = 0.85
-        else if (agentState === 'listening') scale = 0.55
-        const barHeight = Math.max(8, Math.round(height * scale * (side === 'left' ? 0.85 : 0.85)))
-        return <i key={`${side}-${index}`} style={{ height: `${barHeight}px`, animationDelay: `${(index % 8) * 0.08}s` }} />
-      })}
-    </div>
-  )
-}
-
 function VoiceAgentAvatar({ agentState, vadLevel }) {
+  const rootRef = useRef(null)
+  const [activeStep, setActiveStep] = useState(0)
+  const liveStep = getChatOrbitStep(agentState)
+  void vadLevel
+
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+
+    const context = gsap.context(() => {
+      const steps = [...root.querySelectorAll('.voice-orbit-step')]
+      const nodes = [...root.querySelectorAll('.voice-orbit-node')]
+      const beacon = root.querySelector('.voice-orbit-beacon')
+      const ticks = root.querySelectorAll('.voice-orbit-tick')
+      const portrait = root.querySelector('.voice-portrait')
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+      const applyStep = (index, { pulse = true } = {}) => {
+        setActiveStep(index)
+        steps.forEach((step, i) => {
+          step.classList.toggle('is-active', i === index)
+          step.classList.toggle('is-done', i < index)
+          step.classList.toggle('is-upcoming', i > index)
+        })
+        gsap.to(nodes, { scale: 1, duration: 0.25, ease: 'power2.out', overwrite: 'auto' })
+        if (nodes[index] && pulse) {
+          gsap.fromTo(
+            nodes[index],
+            { scale: 1 },
+            { scale: 1.12, duration: 0.35, ease: 'back.out(1.6)', yoyo: true, repeat: 1, overwrite: 'auto' },
+          )
+        } else if (nodes[index]) {
+          gsap.to(nodes[index], { scale: 1.08, duration: 0.28, ease: 'power2.out', overwrite: 'auto' })
+        }
+        if (beacon) {
+          gsap.to(beacon, {
+            rotation: chatOrbitSteps[index].angle,
+            duration: 0.85,
+            ease: 'power1.inOut',
+            overwrite: 'auto',
+          })
+        }
+      }
+
+      gsap.set(beacon, { rotation: chatOrbitSteps[0].angle, transformOrigin: '50% 50%' })
+
+      if (portrait && !reduceMotion) {
+        gsap.to(portrait, {
+          scale: 1.02,
+          duration: 2.6,
+          repeat: -1,
+          yoyo: true,
+          ease: 'sine.inOut',
+        })
+      }
+
+      if (ticks.length && !reduceMotion) {
+        gsap.to(ticks, {
+          scaleY: 0.85,
+          duration: 0.75,
+          repeat: -1,
+          yoyo: true,
+          ease: 'sine.inOut',
+          stagger: { each: 0.02, from: 'start' },
+        })
+      }
+
+      if (liveStep !== null) {
+        applyStep(liveStep, { pulse: agentState !== 'connecting' })
+        return
+      }
+
+      if (reduceMotion) {
+        applyStep(0, { pulse: false })
+        return
+      }
+
+      const timeline = gsap.timeline({ repeat: -1, defaults: { ease: 'power1.inOut' } })
+      chatOrbitSteps.forEach((step, index) => {
+        timeline.add(() => applyStep(index, { pulse: true }))
+        timeline.to({}, { duration: index === chatOrbitSteps.length - 1 ? 1.1 : 1.35 })
+      })
+    }, root)
+
+    return () => context.revert()
+  }, [agentState, liveStep])
+
   return (
-    <div className={`voice-agent voice-agent-${agentState}`} aria-hidden="true">
-      <VoiceWave side="left" agentState={agentState} vadLevel={vadLevel} />
-      <div className="voice-portrait">
-        <span className="voice-portrait-glow" />
-        <span className="voice-portrait-ring" />
-        <img src={doctorAvatar} alt="" />
+    <div
+      ref={rootRef}
+      className={`voice-orbit voice-agent voice-agent-${agentState}`}
+      data-active-step={chatOrbitSteps[activeStep]?.id}
+      aria-hidden="true"
+    >
+      <div className="voice-orbit-stage">
+        <svg className="voice-orbit-svg" viewBox="0 0 400 400">
+          <circle className="voice-orbit-dash" cx="200" cy="200" r={CHAT_ORBIT_R} fill="none" />
+          {chatOrbitSteps.map((step) => {
+            const [cx, cy] = chatOrbitPolar(step.angle)
+            return <circle key={`anchor-${step.id}`} className="voice-orbit-anchor" cx={cx} cy={cy} r="3.5" />
+          })}
+        </svg>
+
+        <div className="voice-orbit-beacon"><i /></div>
+
+        <div className="voice-orbit-wave">
+          {CHAT_WAVE_TICKS.map((height, index) => (
+            <span
+              key={index}
+              className="voice-orbit-spoke"
+              style={{ '--tick-angle': `${(360 / CHAT_WAVE_TICKS.length) * index}deg` }}
+            >
+              <i className="voice-orbit-tick" style={{ '--tick-h': `${height}px` }} />
+            </span>
+          ))}
+        </div>
+
+        <div className="voice-portrait">
+          <span className="voice-portrait-glow" />
+          <span className="voice-portrait-ring" />
+          <img src={doctorAvatar} alt="" />
+        </div>
+
+        {chatOrbitSteps.map((step, index) => (
+          <div
+            key={step.id}
+            className={`voice-orbit-step voice-orbit-side-${step.side}${activeStep === index ? ' is-active' : index < activeStep ? ' is-done' : ' is-upcoming'}`}
+            style={chatStepPercentPos(step.angle)}
+          >
+            <div className="voice-orbit-inner">
+              <span className="voice-orbit-node"><Ic name={step.icon} /></span>
+              <div className="voice-orbit-copy">
+                <strong>{step.title}</strong>
+                <small>{step.detail}</small>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
-      <VoiceWave side="right" agentState={agentState} vadLevel={vadLevel} />
     </div>
   )
 }
@@ -941,6 +1337,21 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
             <span className="voice-status-dot" />
             <span>{voiceStatus.text}</span>
           </div>
+          <p className="voice-hint">Ask about appointments, doctors, departments or hospital services.</p>
+          <div className="voice-service-chips">
+            {chatServiceChips.map((chip) => (
+              <button
+                key={chip.label}
+                className="voice-service-chip"
+                type="button"
+                onClick={startVoiceAgent}
+                disabled={agentConnected || agentConnecting}
+              >
+                <Ic name={chip.icon} />
+                <span>{chip.label}</span>
+              </button>
+            ))}
+          </div>
           <div className="voice-actions-row">
             <button
               className="call-button call-start"
@@ -949,7 +1360,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               disabled={agentConnected || agentConnecting}
             >
               <Ic name="mic" />
-              <span>Start Call</span>
+              <span>Start Voice Chat</span>
             </button>
             <button
               className="call-button call-end"
@@ -958,7 +1369,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               disabled={!agentConnected && !agentConnecting}
             >
               <Ic name="hangup" />
-              <span>End Call</span>
+              <span>End Session</span>
             </button>
           </div>
           {showTranscript && (
@@ -977,6 +1388,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               )}
             </div>
           )}
+          <p className="voice-privacy"><Ic name="shield" /> Your conversation is secure and private</p>
         </div>
       </section>
     </PageShell>
