@@ -1,23 +1,39 @@
 const DEEPGRAM_SPEAK_URL = 'https://api.deepgram.com/v1/speak?model=aura-2-asteria-en&encoding=mp3'
-const MIME_TYPE = 'audio/mpeg'
 
 function getDeepgramApiKey() {
   return import.meta.env.VITE_DEEPGRAM_API_KEY?.trim() || ''
 }
+
+let playbackAudio = null
 
 export function isDeepgramConfigured() {
   return Boolean(getDeepgramApiKey())
 }
 
 export function isDeepgramPlaybackSupported() {
-  return Boolean(window.MediaSource && MediaSource.isTypeSupported(MIME_TYPE))
+  return typeof window !== 'undefined' && typeof Audio !== 'undefined'
 }
 
-function waitForSourceBuffer(sourceBuffer) {
-  if (!sourceBuffer.updating) return Promise.resolve()
-  return new Promise((resolve) => {
-    sourceBuffer.addEventListener('updateend', resolve, { once: true })
-  })
+export function unlockDeepgramPlayback() {
+  if (!isDeepgramPlaybackSupported()) {
+    return Promise.resolve()
+  }
+
+  if (!playbackAudio) {
+    playbackAudio = new Audio()
+  }
+
+  playbackAudio.muted = true
+  playbackAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
+
+  return playbackAudio.play()
+    .then(() => {
+      playbackAudio.pause()
+      playbackAudio.muted = false
+      playbackAudio.removeAttribute('src')
+      playbackAudio.load()
+    })
+    .catch(() => {})
 }
 
 function linkAbortSignal(sourceSignal, targetController) {
@@ -36,15 +52,12 @@ export function stopDeepgramSpeech(session) {
 
   session.aborted = true
   session.abortController?.abort()
-  session.reader?.cancel().catch(() => {})
 
   const audio = session.audio
   if (audio) {
     audio.onended = null
     audio.onerror = null
     audio.pause()
-    audio.removeAttribute('src')
-    audio.load()
   }
 
   if (session.objectUrl) {
@@ -52,181 +65,231 @@ export function stopDeepgramSpeech(session) {
     session.objectUrl = null
   }
 
-  const mediaSource = session.mediaSource
-  if (mediaSource?.readyState === 'open') {
-    try {
-      mediaSource.endOfStream()
-    } catch {
-      // ignore
-    }
-  }
-
   session.unsubscribeAbort?.()
 }
 
-export function streamDeepgramSpeech(text, { signal, onStart, onSession } = {}) {
-  const apiKey = getDeepgramApiKey()
-  if (!apiKey) {
-    return Promise.reject(new Error('Deepgram API key not configured.'))
+function getPlaybackError(error) {
+  if (error?.name === 'NotAllowedError') {
+    return new Error('Audio playback was blocked by the browser. Click Start Voice Chat again and allow sound.')
+  }
+  return new Error('Could not play the assistant response.')
+}
+
+function playBlob(blob, session, onStart) {
+  const objectUrl = URL.createObjectURL(blob)
+  session.objectUrl = objectUrl
+
+  const audio = playbackAudio || new Audio()
+  session.audio = audio
+  if (!playbackAudio) {
+    playbackAudio = audio
   }
 
+  return new Promise((resolve, reject) => {
+    const cleanupListeners = () => {
+      audio.onended = null
+      audio.onerror = null
+    }
+
+    audio.onended = () => {
+      cleanupListeners()
+      resolve()
+    }
+    audio.onerror = () => {
+      cleanupListeners()
+      reject(new Error('Audio playback failed.'))
+    }
+
+    audio.src = objectUrl
+    onStart?.()
+
+    audio.play().catch((error) => {
+      cleanupListeners()
+      reject(getPlaybackError(error))
+    })
+  })
+}
+
+async function fetchDeepgramBlob(text, signal) {
+  const apiKey = getDeepgramApiKey()
+  if (!apiKey) {
+    throw new Error('Deepgram API key not configured.')
+  }
+
+  const trimmedText = text?.trim()
+  if (!trimmedText) {
+    return null
+  }
+
+  let response
+  try {
+    response = await fetch(DEEPGRAM_SPEAK_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: trimmedText }),
+      signal,
+    })
+  } catch (error) {
+    if (error.name === 'AbortError') throw error
+    throw new Error('Could not reach Deepgram. Please try again.')
+  }
+
+  if (!response.ok) {
+    let message = 'Could not generate speech. Please try again.'
+    try {
+      const errorBody = await response.json()
+      message = errorBody.err_msg || errorBody.message || message
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message)
+  }
+
+  const blob = await response.blob()
+  if (!blob.size) {
+    throw new Error('Deepgram returned an empty audio response.')
+  }
+
+  if (!blob.type.includes('audio') && !blob.type.includes('mpeg') && !blob.type.includes('octet-stream')) {
+    throw new Error('Deepgram returned an unexpected response.')
+  }
+
+  return blob
+}
+
+async function speakPhrase(text, session, onStart, signal) {
+  const blob = await fetchDeepgramBlob(text, signal)
+  if (!blob) return
+
+  await playBlob(blob, session, onStart)
+
+  if (session.objectUrl) {
+    URL.revokeObjectURL(session.objectUrl)
+    session.objectUrl = null
+  }
+}
+
+export function createDeepgramSpeechQueue({ signal, onStart, onSession } = {}) {
+  if (!isDeepgramPlaybackSupported()) {
+    throw new Error('Audio playback is not supported in this browser.')
+  }
+
+  const queue = []
+  let flushed = false
+  let stopped = false
+  let started = false
+  let running = false
+  let currentSession = null
+
+  const abortController = new AbortController()
+  const unlinkAbort = linkAbortSignal(signal, abortController)
+
+  let resolveDone
+  let rejectDone
+  let settled = false
+  const done = new Promise((resolve, reject) => {
+    resolveDone = resolve
+    rejectDone = reject
+  })
+
+  const settleDone = (error) => {
+    if (settled) return
+    settled = true
+    unlinkAbort()
+    if (error) rejectDone(error)
+    else resolveDone()
+  }
+
+  const finishIfReady = () => {
+    if (flushed && queue.length === 0 && !running) {
+      settleDone()
+    }
+  }
+
+  const runWorker = async () => {
+    if (running || stopped) return
+    running = true
+
+    try {
+      while (!stopped && !abortController.signal.aborted && queue.length > 0) {
+        const text = queue.shift()
+        const session = {
+          aborted: false,
+          abortController: new AbortController(),
+          audio: null,
+          objectUrl: null,
+        }
+
+        currentSession = session
+        onSession?.(session)
+
+        try {
+          await speakPhrase(text, session, () => {
+            if (!started) {
+              started = true
+              onStart?.()
+            }
+          }, abortController.signal)
+        } catch (error) {
+          if (error.name === 'AbortError' || stopped || abortController.signal.aborted) {
+            return
+          }
+          settleDone(error)
+          throw error
+        } finally {
+          currentSession = null
+        }
+      }
+    } finally {
+      running = false
+      finishIfReady()
+    }
+  }
+
+  const kickWorker = () => {
+    if (!stopped) {
+      runWorker().catch((error) => {
+        if (error.name !== 'AbortError') {
+          settleDone(error)
+        }
+      })
+    }
+  }
+
+  return {
+    enqueue(text) {
+      if (stopped || !text?.trim()) return
+      queue.push(text.trim())
+      kickWorker()
+    },
+    flush() {
+      flushed = true
+      finishIfReady()
+    },
+    stop() {
+      stopped = true
+      flushed = true
+      abortController.abort()
+      stopDeepgramSpeech(currentSession)
+      currentSession = null
+      queue.length = 0
+      settleDone()
+    },
+    done,
+  }
+}
+
+export function streamDeepgramSpeech(text, { signal, onStart, onSession } = {}) {
   const trimmedText = text?.trim()
   if (!trimmedText) {
     return Promise.resolve(null)
   }
 
-  if (!isDeepgramPlaybackSupported()) {
-    return Promise.reject(new Error('Streaming audio playback is not supported in this browser.'))
-  }
-
-  const session = {
-    aborted: false,
-    abortController: new AbortController(),
-    audio: null,
-    mediaSource: null,
-    objectUrl: null,
-    reader: null,
-    unsubscribeAbort: null,
-  }
-
-  session.unsubscribeAbort = linkAbortSignal(signal, session.abortController)
-  onSession?.(session)
-
-  return new Promise((resolve, reject) => {
-    let settled = false
-
-    const finish = (error) => {
-      if (settled) return
-      settled = true
-      session.unsubscribeAbort?.()
-      if (error) {
-        stopDeepgramSpeech(session)
-        reject(error)
-      } else {
-        stopDeepgramSpeech(session)
-        resolve(session)
-      }
-    }
-
-    const fetchAndPlay = async () => {
-      let response
-      try {
-        response = await fetch(DEEPGRAM_SPEAK_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Token ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ text: trimmedText }),
-          signal: session.abortController.signal,
-        })
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          finish(error)
-          return
-        }
-        finish(new Error('Could not reach Deepgram. Please try again.'))
-        return
-      }
-
-      if (session.aborted) {
-        finish(new DOMException('Aborted', 'AbortError'))
-        return
-      }
-
-      if (!response.ok) {
-        let message = 'Could not generate speech. Please try again.'
-        try {
-          const errorBody = await response.json()
-          message = errorBody.err_msg || errorBody.message || message
-        } catch {
-          // ignore parse errors
-        }
-        finish(new Error(message))
-        return
-      }
-
-      const contentType = response.headers.get('content-type') || ''
-      if (!contentType.includes('audio')) {
-        finish(new Error('Deepgram returned an unexpected response.'))
-        return
-      }
-
-      if (!response.body) {
-        finish(new Error('Streaming audio is not available in this browser.'))
-        return
-      }
-
-      const mediaSource = new MediaSource()
-      const audio = new Audio()
-      const objectUrl = URL.createObjectURL(mediaSource)
-
-      session.audio = audio
-      session.mediaSource = mediaSource
-      session.objectUrl = objectUrl
-      audio.src = objectUrl
-
-      audio.onended = () => finish(null)
-      audio.onerror = () => finish(new Error('Audio playback failed.'))
-
-      mediaSource.addEventListener('sourceopen', async () => {
-        if (session.aborted) return
-
-        let sourceBuffer
-        try {
-          sourceBuffer = mediaSource.addSourceBuffer(MIME_TYPE)
-        } catch (error) {
-          finish(error instanceof Error ? error : new Error('Could not initialize audio stream.'))
-          return
-        }
-
-        const reader = response.body.getReader()
-        session.reader = reader
-        let started = false
-
-        try {
-          while (!session.aborted) {
-            const { done, value } = await reader.read()
-            if (done) break
-            if (!value?.byteLength) continue
-
-            await waitForSourceBuffer(sourceBuffer)
-            if (session.aborted) break
-
-            sourceBuffer.appendBuffer(value)
-
-            if (!started) {
-              started = true
-              onStart?.()
-              await audio.play().catch(() => {})
-            }
-          }
-
-          if (session.aborted) {
-            finish(new DOMException('Aborted', 'AbortError'))
-            return
-          }
-
-          await waitForSourceBuffer(sourceBuffer)
-          if (mediaSource.readyState === 'open') {
-            mediaSource.endOfStream()
-          }
-
-          if (!started) {
-            finish(null)
-          }
-        } catch (error) {
-          if (error.name === 'AbortError') {
-            finish(error)
-            return
-          }
-          finish(error instanceof Error ? error : new Error('Audio streaming failed.'))
-        }
-      }, { once: true })
-    }
-
-    fetchAndPlay().catch((error) => {
-      finish(error instanceof Error ? error : new Error('Audio streaming failed.'))
-    })
-  })
+  const queue = createDeepgramSpeechQueue({ signal, onStart, onSession })
+  queue.enqueue(trimmedText)
+  queue.flush()
+  return queue.done
 }

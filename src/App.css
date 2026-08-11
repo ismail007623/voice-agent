@@ -120,21 +120,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   max-width: 60px;
   object-position: center;
 }
-.brand-logo-about {
-  height: auto;
-  width: min(100%, 160px);
-  max-width: 160px;
-  margin: 0 auto;
-  object-position: center;
-}
-.about-mark {
-  display: flex;
-  justify-content: center;
-  margin: 3px auto 15px;
-  background: none;
-  box-shadow: none;
-  overflow: visible;
-}
 .site-header nav {
   display: flex;
   gap: 32px;
@@ -1165,6 +1150,38 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 }
 .voice-panel-agent {
   gap: 0;
+  padding: 12px 20px 16px;
+}
+.voice-panel-agent .voice-stage {
+  gap: 10px;
+}
+.voice-intro {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+.voice-panel-agent .voice-status {
+  font-size: 17px;
+}
+.voice-panel-agent .voice-hint {
+  margin: 0;
+}
+.voice-panel-agent .voice-service-chips {
+  margin-top: 0;
+  gap: 8px;
+}
+.voice-panel-agent .voice-actions-row {
+  margin-top: 0;
+  gap: 10px;
+}
+.voice-panel-agent .voice-orbit {
+  max-height: min(42vh, 400px);
+  width: min(100%, 420px);
+  overflow: visible;
+  margin-top: 18px;
+}
+.voice-panel-agent .voice-privacy {
+  margin: 0;
 }
 .voice-stage {
   width: min(100%, 720px);
@@ -1174,9 +1191,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 }
 .voice-orbit {
   position: relative;
-  width: min(100%, 560px);
+  width: min(100%, 440px);
   aspect-ratio: 1;
-  max-height: min(72vw, 560px);
+  max-height: min(62vw, 440px);
 }
 .voice-orbit-stage {
   position: relative;
@@ -1225,8 +1242,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .voice-orbit-wave {
   position: absolute;
   z-index: 2;
-  width: 210px;
-  height: 210px;
+  width: 178px;
+  height: 178px;
   border-radius: 50%;
   pointer-events: none;
 }
@@ -1241,7 +1258,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .voice-orbit-tick {
   position: absolute;
   left: 0;
-  bottom: 92px;
+  bottom: 78px;
   width: 1.5px;
   height: var(--tick-h, 7px);
   margin-left: -0.75px;
@@ -1255,8 +1272,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .voice-portrait {
   position: relative;
   z-index: 3;
-  width: 168px;
-  height: 168px;
+  width: 152px;
+  height: 152px;
   display: grid;
   place-items: center;
 }
@@ -1276,8 +1293,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   opacity: 0.9;
 }
 .voice-portrait img {
-  width: 148px;
-  height: 148px;
+  width: 132px;
+  height: 132px;
   border-radius: 50%;
   object-fit: cover;
   object-position: center top;
@@ -1288,32 +1305,33 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .voice-orbit-step {
   position: absolute;
   z-index: 6;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   transform: translate(-50%, -50%);
   pointer-events: none;
+  overflow: visible;
 }
 .voice-orbit-step.is-upcoming { opacity: 0.55; }
-.voice-orbit-step.is-active,
 .voice-orbit-step.is-done { opacity: 1; }
+.voice-orbit-step.is-active { opacity: 1; z-index: 7; }
 .voice-orbit-inner {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
 }
 .voice-orbit-node {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   color: #1b7c76;
   background: #fff;
   border: 1.5px solid #cfe3df;
   box-shadow: 0 6px 16px #15203310;
-  font-size: 17px;
+  font-size: 16px;
   transition: box-shadow 0.3s ease, border-color 0.3s ease, color 0.3s ease, background 0.3s ease;
 }
 .voice-orbit-step.is-done .voice-orbit-node {
@@ -1330,27 +1348,39 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .voice-orbit-copy {
   position: absolute;
   top: 50%;
-  width: 128px;
+  width: 112px;
   display: grid;
   gap: 2px;
   padding: 4px 2px;
+  pointer-events: none;
 }
 .voice-orbit-side-end .voice-orbit-copy {
   left: calc(100% + 10px);
+  top: 50%;
   transform: translateY(-50%);
   text-align: left;
 }
 .voice-orbit-side-start .voice-orbit-copy {
   right: calc(100% + 10px);
+  top: 50%;
   transform: translateY(-50%);
   text-align: right;
 }
 .voice-orbit-side-top .voice-orbit-copy {
   left: 50%;
-  top: calc(100% + 8px);
-  transform: translateX(-50%);
+  top: 0;
+  bottom: auto;
+  transform: translate(-50%, calc(-100% - 12px));
   text-align: center;
-  width: 140px;
+  width: 130px;
+}
+.voice-orbit-step:not(.is-active) .voice-orbit-copy small {
+  display: none;
+}
+.voice-agent-listening .voice-orbit-side-top.is-active .voice-orbit-copy,
+.voice-agent-user_speaking .voice-orbit-side-top.is-active .voice-orbit-copy,
+.voice-agent-connecting .voice-orbit-side-top.is-active .voice-orbit-copy {
+  display: none;
 }
 .voice-orbit-copy strong {
   color: #17362a;
@@ -2141,32 +2171,46 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .footer-main { grid-template-columns: 1fr 1fr; }
   .app-shell { padding: 12px; }
   .app-frame { gap: 12px; min-height: calc(100vh - 24px); }
-  .voice-orbit { width: min(100%, 480px); }
-  .voice-orbit-wave { width: 180px; height: 180px; }
-  .voice-orbit-tick { bottom: 78px; }
-  .voice-portrait { width: 140px; height: 140px; }
-  .voice-portrait img { width: 124px; height: 124px; }
-  .voice-orbit-copy { width: 110px; }
+  .voice-orbit { width: min(100%, 400px); max-height: 400px; }
+  .voice-panel-agent { padding: 10px 16px 14px; }
+  .voice-panel-agent .voice-stage { gap: 8px; }
+  .voice-panel-agent .voice-orbit { max-height: min(40vh, 340px); width: min(100%, 380px); }
+  .voice-orbit-wave { width: 158px; height: 158px; }
+  .voice-orbit-tick { bottom: 69px; }
+  .voice-portrait { width: 132px; height: 132px; }
+  .voice-portrait img { width: 116px; height: 116px; }
+  .voice-orbit-copy { width: 100px; }
   .voice-orbit-copy strong { font-size: 11px; }
   .voice-orbit-copy small { font-size: 9px; }
+  .voice-orbit-side-top .voice-orbit-copy {
+    width: 118px;
+    transform: translate(-50%, calc(-100% - 10px));
+  }
 }
 
 @media (max-width: 720px) {
   .voice-orbit {
-    width: min(100%, 360px);
-    max-height: 420px;
+    width: min(100%, 320px);
+    max-height: 360px;
   }
-  .voice-orbit-wave { width: 150px; height: 150px; }
-  .voice-orbit-tick { bottom: 64px; }
-  .voice-portrait { width: 118px; height: 118px; }
-  .voice-portrait img { width: 104px; height: 104px; }
+  .voice-panel-agent { padding: 8px 14px 12px; }
+  .voice-panel-agent .voice-stage { gap: 8px; }
+  .voice-panel-agent .voice-orbit { max-height: min(38vh, 300px); width: min(100%, 320px); }
+  .voice-orbit-wave { width: 138px; height: 138px; }
+  .voice-orbit-tick { bottom: 60px; }
+  .voice-portrait { width: 112px; height: 112px; }
+  .voice-portrait img { width: 98px; height: 98px; }
   .voice-orbit-node,
   .voice-orbit-inner,
-  .voice-orbit-step { width: 34px; height: 34px; }
+  .voice-orbit-step { width: 32px; height: 32px; }
   .voice-orbit-node { font-size: 14px; }
-  .voice-orbit-copy { width: 96px; }
-  .voice-orbit-side-end .voice-orbit-copy { left: calc(100% + 6px); }
-  .voice-orbit-side-start .voice-orbit-copy { right: calc(100% + 6px); }
+  .voice-orbit-copy { width: 90px; }
+  .voice-orbit-side-end .voice-orbit-copy { left: calc(100% + 8px); }
+  .voice-orbit-side-start .voice-orbit-copy { right: calc(100% + 8px); }
+  .voice-orbit-side-top .voice-orbit-copy {
+    width: 104px;
+    transform: translate(-50%, calc(-100% - 8px));
+  }
   .voice-service-chips { flex-direction: column; width: min(100%, 280px); }
   .voice-service-chip { justify-content: center; width: 100%; }
   .voice-actions-row {
@@ -2281,6 +2325,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .app-main { border-radius: 9px; }
   .content-page { padding: 28px 18px; }
   .voice-panel { padding: 20px 16px 28px; }
+  .voice-panel-agent { padding: 8px 14px 12px; }
   .topbar { padding: 12px 14px; }
   .mic-button,
   .stop-button,

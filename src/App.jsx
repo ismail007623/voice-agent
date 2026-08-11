@@ -3,14 +3,16 @@ import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import doctorAvatar from './assets/ai-doctor-avatar.png'
 import shenazLogo from './assets/shenaz-logo.png'
-import { postVoiceAgent } from './services/voiceAgent'
+import { streamVoiceAgent } from './services/voiceAgent'
 import {
+  createDeepgramSpeechQueue,
   isDeepgramConfigured,
   isDeepgramPlaybackSupported,
   stopDeepgramSpeech,
-  streamDeepgramSpeech,
+  unlockDeepgramPlayback,
 } from './services/deepgramTts'
 import { createSpeechRecognizer, isSpeechRecognitionSupported } from './utils/browserStt'
+import { createPhraseBuffer } from './utils/phraseBuffer'
 import './App.css'
 
 const serviceData = [
@@ -123,8 +125,8 @@ const chatOrbitSteps = [
   { id: 'action', icon: 'calendar', title: 'Taking Action', detail: 'Working on your request…', angle: 216, side: 'start' },
   { id: 'respond', icon: 'check', title: 'Responding', detail: 'Preparing the best response…', angle: 288, side: 'start' },
 ]
-const CHAT_ORBIT_R = 148
-const CHAT_STEP_R = 0.42
+const CHAT_ORBIT_R = 138
+const CHAT_STEP_R = 0.345
 const CHAT_WAVE_COUNT = 64
 const CHAT_WAVE_TICKS = Array.from({ length: CHAT_WAVE_COUNT }, (_, i) => {
   const t = (i / CHAT_WAVE_COUNT) * Math.PI * 2
@@ -240,7 +242,7 @@ function Header() {
 }
 
 function Sidebar({ page, goTo }) {
-  const links = [['chat', 'Chat', 'chat'], ['history', 'History', 'history'], ['help', 'Help', 'about'], ['settings', 'Settings', 'about']]
+  const links = [['chat', 'Chat', 'chat'], ['history', 'History', 'history'], ['help', 'Help', 'help'], ['settings', 'Settings', 'settings']]
   return (
     <aside className="sidebar">
       <button className="sidebar-brand" type="button" onClick={() => goTo('home')} aria-label="Shenaz home">
@@ -878,10 +880,10 @@ function VoiceAgentAvatar({ agentState, vadLevel }) {
           >
             <div className="voice-orbit-inner">
               <span className="voice-orbit-node"><Ic name={step.icon} /></span>
-              <div className="voice-orbit-copy">
-                <strong>{step.title}</strong>
-                <small>{step.detail}</small>
-              </div>
+            </div>
+            <div className="voice-orbit-copy">
+              <strong>{step.title}</strong>
+              <small>{step.detail}</small>
             </div>
           </div>
         ))}
@@ -931,6 +933,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const abortController = useRef(null)
   const ttsAbortController = useRef(null)
   const ttsSession = useRef(null)
+  const ttsQueueRef = useRef(null)
   const vadPaused = useRef(false)
   const sessionActive = useRef(false)
   const turnInProgress = useRef(false)
@@ -1041,55 +1044,11 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     startVadLoop()
   }
 
-  const speakAssistantReply = async (text) => {
-    if (!text?.trim()) {
-      tryResumeListeningRef.current()
-      return
-    }
-
-    ttsAbortController.current?.abort()
-    stopDeepgramSpeech(ttsSession.current)
-    ttsSession.current = null
-
-    const controller = new AbortController()
-    ttsAbortController.current = controller
-
-    ttsSpeaking.current = true
-    syncAgentState('speaking')
-    vadPaused.current = true
-    stopVadLoop()
-
-    try {
-      await streamDeepgramSpeech(text, {
-        signal: controller.signal,
-        onSession: (session) => {
-          ttsSession.current = session
-        },
-      })
-      if (!sessionActive.current) return
-      ttsSpeaking.current = false
-      ttsSession.current = null
-      if (ttsAbortController.current === controller) {
-        ttsAbortController.current = null
-      }
-      tryResumeListeningRef.current()
-    } catch (ttsError) {
-      if (ttsError.name === 'AbortError') return
-      if (!sessionActive.current) return
-
-      ttsSpeaking.current = false
-      ttsSession.current = null
-      if (ttsAbortController.current === controller) {
-        ttsAbortController.current = null
-      }
-      setError(ttsError.message || 'Could not play the assistant response. Please try again.')
-      tryResumeListeningRef.current()
-    }
-  }
-
   const stopTts = () => {
     ttsAbortController.current?.abort()
     ttsAbortController.current = null
+    ttsQueueRef.current?.stop()
+    ttsQueueRef.current = null
     stopDeepgramSpeech(ttsSession.current)
     ttsSession.current = null
     ttsSpeaking.current = false
@@ -1098,26 +1057,53 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const submitTurn = async (transcript) => {
     syncAgentState('processing')
     setProcessingMessage('Processing…')
+    setAssistantText('')
 
     abortController.current?.abort()
     const controller = new AbortController()
     abortController.current = controller
 
+    stopTts()
+    const ttsController = new AbortController()
+    ttsAbortController.current = ttsController
+
+    let ttsQueue
+    const phraseBuffer = createPhraseBuffer({
+      onPhrase: (phrase) => ttsQueue.enqueue(phrase),
+    })
+
+    ttsQueue = createDeepgramSpeechQueue({
+      signal: ttsController.signal,
+      onStart: () => {
+        ttsSpeaking.current = true
+        syncAgentState('speaking')
+        vadPaused.current = true
+        stopVadLoop()
+      },
+      onSession: (session) => {
+        ttsSession.current = session
+      },
+    })
+    ttsQueueRef.current = ttsQueue
+
     try {
-      const result = await postVoiceAgent(
-        transcript,
-        conversationIdRef.current || null,
-        controller.signal,
-      )
+      await streamVoiceAgent(transcript, conversationIdRef.current || null, {
+        signal: controller.signal,
+        onConversationId: (id) => {
+          if (id) setConversationId(id)
+        },
+        onTextChunk: (delta) => {
+          setAssistantText((prev) => prev + delta)
+          phraseBuffer.append(delta)
+        },
+      })
 
       if (!sessionActive.current) return
 
-      if (result.conversationId) {
-        setConversationId(result.conversationId)
-      }
+      phraseBuffer.flush()
+      ttsQueue.flush()
 
       setUserTranscript(transcript)
-      setAssistantText(result.text)
       setProcessingMessage('')
       setError('')
 
@@ -1128,7 +1114,23 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       })
 
       turnInProgress.current = false
-      await speakAssistantReply(result.text)
+
+      try {
+        await ttsQueue.done
+      } catch (ttsError) {
+        if (ttsError.name === 'AbortError') return
+        throw ttsError
+      }
+
+      if (!sessionActive.current) return
+
+      ttsSpeaking.current = false
+      ttsQueueRef.current = null
+      ttsSession.current = null
+      if (ttsAbortController.current === ttsController) {
+        ttsAbortController.current = null
+      }
+      tryResumeListeningRef.current()
     } catch (requestError) {
       if (requestError.name === 'AbortError') return
       if (!sessionActive.current) return
@@ -1141,6 +1143,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
         status: 'Could not complete',
         url: '',
       })
+      stopTts()
       tryResumeListeningRef.current()
     } finally {
       if (abortController.current === controller) {
@@ -1333,6 +1336,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
     setError('')
     syncAgentState('connecting')
+    await unlockDeepgramPlayback()
 
     try {
       await setupAudioInput()
@@ -1368,12 +1372,14 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       </Topbar>
       <section className={`voice-panel voice-panel-agent ${agentState}`}>
         <div className="voice-stage">
-          <VoiceAgentAvatar agentState={agentState} vadLevel={vadLevel} />
-          <div className={`voice-status voice-status-${voiceStatus.tone}`} aria-live="polite">
-            <span className="voice-status-dot" />
-            <span>{voiceStatus.text}</span>
+          <div className="voice-intro">
+            <div className={`voice-status voice-status-${voiceStatus.tone}`} aria-live="polite">
+              <span className="voice-status-dot" />
+              <span>{voiceStatus.text}</span>
+            </div>
+            <p className="voice-hint">Ask about appointments, doctors, departments or hospital services.</p>
           </div>
-          <p className="voice-hint">Ask about appointments, doctors, departments or hospital services.</p>
+          <VoiceAgentAvatar agentState={agentState} vadLevel={vadLevel} />
           <div className="voice-service-chips">
             {chatServiceChips.map((chip) => (
               <button
@@ -1432,7 +1438,20 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 }
 
 function Services({ goTo }) { return <PageShell page="services" goTo={goTo}><Topbar title="Our Services" goTo={goTo} /><div className="content-page"><p className="eyebrow">CARE AT YOUR CONVENIENCE</p><h1>We&apos;re here to help</h1><p className="lead">Get answers and support from Shenaz Hospital whenever you need it.</p><div className="service-list">{serviceData.map(([icon, title, detail]) => <button key={title} onClick={() => goTo('chat')}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i><b>›</b></button>)}</div></div></PageShell> }
-function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark"><img src={shenazLogo} alt="Shenaz Hospital" className="brand-logo brand-logo-about" /></div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
+function About({ goTo, page = 'about', title = 'About Us' }) { return <PageShell page={page} goTo={goTo}><Topbar title={title} goTo={goTo} /><div className="content-page about"><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
+function Help({ goTo }) { return <About goTo={goTo} page="help" title="Help" /> }
+function Settings({ goTo }) {
+  return (
+    <PageShell page="settings" goTo={goTo}>
+      <Topbar title="Settings" goTo={goTo} />
+      <div className="content-page empty-history">
+        <span><Ic name="settings" /></span>
+        <h2>Coming soon</h2>
+        <p>Settings will be available in a future update.</p>
+      </div>
+    </PageShell>
+  )
+}
 function History({ goTo, history }) { return <PageShell page="history" goTo={goTo}><Topbar title="Conversation History" goTo={goTo} /><div className="content-page history"><div className="search">⌕ <span>Search conversations...</span></div><div className="filters"><button className="active">All</button><button>Appointments</button><button>FAQs</button><button>General</button></div>{history.length ? history.map((item, index) => <article className="history-row" key={`${item.time}-${index}`}><span className={item.url ? 'history-icon success' : 'history-icon'}>{item.url ? '♬' : '!'}</span><i><strong>{item.status}</strong><small>Voice conversation · {item.time}</small></i>{item.url && <button onClick={() => new Audio(item.url).play()}>▶</button>}</article>) : <div className="empty-history"><span>◷</span><h2>No conversations yet</h2><p>Your voice conversations will appear here.</p><button className="button" onClick={() => goTo('chat')}>Start a voice chat</button></div>}</div></PageShell> }
 
 function App() {
@@ -1447,6 +1466,9 @@ function App() {
   if (page === 'chat') return <VoiceChat goTo={setPage} addHistory={(item) => setHistory((previous) => [item, ...previous])} conversationId={conversationId} setConversationId={setConversationId} startNewChat={startNewChat} />
   if (page === 'services') return <Services goTo={setPage} />
   if (page === 'history') return <History goTo={setPage} history={history} />
+  if (page === 'help') return <Help goTo={setPage} />
+  if (page === 'settings') return <Settings goTo={setPage} />
+  if (page === 'about') return <About goTo={setPage} />
   return <About goTo={setPage} />
 }
 
