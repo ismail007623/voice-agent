@@ -101,47 +101,39 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  text-align: left;
-  color: var(--ink);
   background: transparent;
   padding: 0;
+  border: 0;
 }
-.brand-mark,
+.brand-logo {
+  display: block;
+  height: 48px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+  object-position: left center;
+  background: transparent;
+}
+.brand-logo-sidebar {
+  height: auto;
+  width: min(100%, 60px);
+  max-width: 60px;
+  object-position: center;
+}
+.brand-logo-about {
+  height: auto;
+  width: min(100%, 160px);
+  max-width: 160px;
+  margin: 0 auto;
+  object-position: center;
+}
 .about-mark {
-  display: grid;
-  place-items: center;
-  color: #fff;
-  background: linear-gradient(145deg, #10a568, #006a44);
-  font-size: 18px;
-  font-weight: 800;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  box-shadow: 0 8px 22px #08784c28;
-  overflow: hidden;
-}
-.brand-mark img,
-.about-mark img,
-.sidebar-brand-mark img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: inherit;
-}
-.brand b {
-  display: block;
-  font: 800 18px/1 Manrope, sans-serif;
-  color: var(--deep);
-}
-.brand small {
-  display: block;
-  margin-top: 2px;
-  font-size: 8px;
-  letter-spacing: 2.2px;
-  font-weight: 700;
-  color: #7a8a82;
+  display: flex;
+  justify-content: center;
+  margin: 3px auto 15px;
+  background: none;
+  box-shadow: none;
+  overflow: visible;
 }
 .site-header nav {
   display: flex;
@@ -189,7 +181,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 }
 .button:hover { background: linear-gradient(135deg, #0db173, #005d3b); transform: translateY(-2px); box-shadow: 0 7px 18px #007A4630; }
 .button svg { font-size: 16px; }
-.header-cta { margin-left: 8px; flex: none; }
 
 /* Hero */
 .hero-section {
@@ -1012,18 +1003,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   background: transparent;
   padding: 0;
   margin-bottom: 8px;
-}
-.sidebar-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #1f8a84, #155f5b);
-  color: #fff;
-  font: 700 18px var(--agent-display);
-  box-shadow: 0 10px 20px #1b7c7630;
-  overflow: hidden;
+  width: 100%;
 }
 .side-menu {
   width: 100%;
@@ -1716,7 +1696,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .service-list small { font-size: 10px; }
 .service-list b { margin-left: auto; color: #809187; font-size: 20px; }
 .about { text-align: center; }
-.about-mark { width: 46px; height: 46px; font-size: 35px; margin: 3px auto 15px; }
 .about > p:not(.lead) {
   color: #65766d;
   font-size: 12px;
@@ -1803,18 +1782,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   border-color: rgba(124, 242, 190, .16);
   backdrop-filter: blur(22px) saturate(130%);
 }
-.brand-mark,
-.about-mark {
-  border-radius: 7px;
-  background: linear-gradient(145deg, #16bd7c, #087950);
-  box-shadow: 0 0 18px #19c9852d;
-}
-.brand b {
-  color: #f1fff8;
-  font: 600 21px/.9 Fraunces, Georgia, serif;
-  letter-spacing: -.025em;
-}
-.brand small { color: #7ea694; font-family: Inter, sans-serif; }
+.landing .site-header .brand-logo { height: 56px; max-width: 200px; }
+.landing footer .brand-logo { height: 42px; }
 .site-header nav button { color: #91ab9f; }
 .site-header nav button:hover,
 .site-header nav .active { color: #62e8ad; }
@@ -1938,9 +1907,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   color: #45675a;
 }
 .landing footer { background: #061711; border-top-color: #7be8b421; }
-.landing footer .brand b,
 .landing footer .footer-col strong { color: #eafff5; }
-.landing footer .brand small,
 .landing footer .footer-col button,
 .landing footer .footer-col span,
 .landing footer .footer-brand > p,
@@ -1973,8 +1940,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   border-color: #55e4aa4f;
   background: #4bdda010;
 }
-.landing .brand:hover .brand-mark { transform: rotate(-4deg) scale(1.04); }
-.landing .brand-mark { transition: transform .3s cubic-bezier(.2, .8, .2, 1); }
+.landing .brand:hover .brand-logo { transform: scale(1.02); }
+.landing .brand-logo { transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
 .landing .site-header nav button {
   position: relative;
   padding: 9px 13px;
@@ -2096,7 +2063,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   background: linear-gradient(180deg, rgba(8, 37, 28, .96), rgba(5, 26, 22, .96));
   box-shadow: none;
 }
-.sidebar-brand-mark { border-radius: 7px; background: linear-gradient(145deg, #13ad73, #076845); box-shadow: none; }
+.sidebar-brand .brand-logo-sidebar { width: min(100%, 56px); max-width: 56px; }
 .side-menu button,
 .logout { border-radius: 7px; }
 .side-icon { border-radius: 7px; background: #ffffff0b; color: #82a598; }
@@ -2245,7 +2212,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   }
   .site-header nav .active { border-bottom-color: var(--line); box-shadow: inset 3px 0 0 var(--green); }
   .menu-toggle { display: grid; }
-  .header-cta { padding: 10px 14px; font-size: 12px; }
   .hero-section {
     grid-template-columns: 1fr;
     text-align: center;
@@ -2311,7 +2277,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
     gap: 24px;
   }
   .sidebar { width: 68px; padding: 12px 6px; }
-  .sidebar-brand-mark { width: 36px; height: 36px; font-size: 16px; border-radius: 7px; }
+  .brand-logo-sidebar { width: min(100%, 52px); max-width: 52px; }
   .app-main { border-radius: 9px; }
   .content-page { padding: 28px 18px; }
   .voice-panel { padding: 20px 16px 28px; }
@@ -2325,5 +2291,4 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 
 @media (max-width: 440px) {
   .footer-main { grid-template-columns: 1fr; }
-  .header-cta { display: none; }
 }

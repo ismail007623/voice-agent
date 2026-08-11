@@ -28,10 +28,43 @@ const MEDIA_RECORDER_TIMESLICE_MS = 250
 const navLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'about']]
 const landingNavLinks = [['Home', 'home'], ['Services', 'services'], ['About Us', 'about'], ['Contact', 'contact']]
 const voiceProcessSteps = [
-  { id: 'listen', n: '1', title: 'Listening', detail: 'Capturing your voice…', tone: 'teal', angle: 0, side: 'end' },
-  { id: 'understand', n: '2', title: 'Understanding', detail: 'Analyzing your request…', tone: 'cyan', angle: 75, side: 'end' },
-  { id: 'speak', n: '3', title: 'Speaking', detail: 'Replying to you…', tone: 'blue', angle: 155, side: 'start' },
-  { id: 'ready', n: '4', title: 'Ready', detail: 'Ready for next question', tone: 'violet', angle: 235, side: 'start', showCheck: true },
+  {
+    id: 'services',
+    n: '1',
+    title: 'Services',
+    detail: 'Find hospital services',
+    tone: 'teal',
+    angle: 0,
+    side: 'end',
+  },
+  {
+    id: 'doctor',
+    n: '2',
+    title: 'Find a Doctor',
+    detail: 'Check doctor availability',
+    tone: 'cyan',
+    angle: 90,
+    side: 'end',
+  },
+  {
+    id: 'booking',
+    n: '3',
+    title: 'Book a Visit',
+    detail: 'Schedule your appointment',
+    tone: 'blue',
+    angle: 180,
+    side: 'start',
+  },
+  {
+    id: 'support',
+    n: '4',
+    title: 'Get Support',
+    detail: 'Ask anything about the hospital',
+    tone: 'violet',
+    angle: 270,
+    side: 'start',
+    showCheck: true,
+  },
 ]
 const PROCESS_RING_R = 132
 // Orbit SVG is inset 4% (92% of stage); ring r/160 of that half → ~37.95% from center
@@ -157,10 +190,14 @@ function Ic({ name, className }) {
 }
 
 function Brand({ light = false, onClick }) {
-  return <button className={`brand ${light ? 'brand-light' : ''}`} type="button" onClick={onClick}><span className="brand-mark"><img src={shenazLogo} alt="" /></span><span><b>Shenaz</b><small>HOSPITAL</small></span></button>
+  return (
+    <button className={`brand ${light ? 'brand-light' : ''}`} type="button" onClick={onClick} aria-label="Shenaz Hospital home">
+      <img src={shenazLogo} alt="Shenaz Hospital" className="brand-logo" />
+    </button>
+  )
 }
 
-function Header({ goTo }) {
+function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [activeSection, setActiveSection] = useState('home')
@@ -198,7 +235,6 @@ function Header({ goTo }) {
       <button className="menu-toggle" type="button" aria-label="Open menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>
         <Ic name="menu" />
       </button>
-      <button className="button header-cta" onClick={() => goTo('chat')}><Ic name="mic" /> Start Voice Chat</button>
     </header>
   )
 }
@@ -208,7 +244,7 @@ function Sidebar({ page, goTo }) {
   return (
     <aside className="sidebar">
       <button className="sidebar-brand" type="button" onClick={() => goTo('home')} aria-label="Shenaz home">
-        <span className="sidebar-brand-mark"><img src={shenazLogo} alt="" /></span>
+        <img src={shenazLogo} alt="Shenaz Hospital" className="brand-logo brand-logo-sidebar" />
       </button>
       <nav className="side-menu" aria-label="App">
         {links.map(([icon, label, target]) => (
@@ -586,7 +622,7 @@ function Landing({ goTo }) {
       <div className="landing">
         <div className="gradient-orb gradient-orb-one" aria-hidden="true" />
         <div className="gradient-orb gradient-orb-two" aria-hidden="true" />
-        <Header goTo={goTo} />
+        <Header />
         <main>
           <section className="hero-section" id="home">
             <div className="hero-copy">
@@ -1396,7 +1432,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 }
 
 function Services({ goTo }) { return <PageShell page="services" goTo={goTo}><Topbar title="Our Services" goTo={goTo} /><div className="content-page"><p className="eyebrow">CARE AT YOUR CONVENIENCE</p><h1>We&apos;re here to help</h1><p className="lead">Get answers and support from Shenaz Hospital whenever you need it.</p><div className="service-list">{serviceData.map(([icon, title, detail]) => <button key={title} onClick={() => goTo('chat')}><span>{icon}</span><i><strong>{title}</strong><small>{detail}</small></i><b>›</b></button>)}</div></div></PageShell> }
-function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark"><img src={shenazLogo} alt="Shenaz Hospital" /></div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
+function About({ goTo }) { return <PageShell page="about" goTo={goTo}><Topbar title="About Us" goTo={goTo} /><div className="content-page about"><div className="about-mark"><img src={shenazLogo} alt="Shenaz Hospital" className="brand-logo brand-logo-about" /></div><h1>Shenaz Hospital</h1><p className="lead">Compassionate care. Advanced healthcare.</p><p>Shenaz Hospital is dedicated to providing exceptional medical care with compassion and excellence. Our AI Contact Center is here to help you 24/7 with your healthcare needs.</p><div className="contact-card"><h3>⌖ Location</h3><p>123 Health Street, Wellness City, HC 12345</p><h3>☎ Phone</h3><p>+1 (555) 123-4567</p><h3>✉ Email</h3><p>info@shenazhospital.com</p></div></div></PageShell> }
 function History({ goTo, history }) { return <PageShell page="history" goTo={goTo}><Topbar title="Conversation History" goTo={goTo} /><div className="content-page history"><div className="search">⌕ <span>Search conversations...</span></div><div className="filters"><button className="active">All</button><button>Appointments</button><button>FAQs</button><button>General</button></div>{history.length ? history.map((item, index) => <article className="history-row" key={`${item.time}-${index}`}><span className={item.url ? 'history-icon success' : 'history-icon'}>{item.url ? '♬' : '!'}</span><i><strong>{item.status}</strong><small>Voice conversation · {item.time}</small></i>{item.url && <button onClick={() => new Audio(item.url).play()}>▶</button>}</article>) : <div className="empty-history"><span>◷</span><h2>No conversations yet</h2><p>Your voice conversations will appear here.</p><button className="button" onClick={() => goTo('chat')}>Start a voice chat</button></div>}</div></PageShell> }
 
 function App() {
