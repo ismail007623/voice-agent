@@ -160,8 +160,7 @@ async function fetchDeepgramBlob(text, signal) {
   return blob
 }
 
-async function speakPhrase(text, session, onStart, signal) {
-  const blob = await fetchDeepgramBlob(text, signal)
+async function playFetchedBlob(blob, session, onStart) {
   if (!blob) return
 
   await playBlob(blob, session, onStart)
@@ -209,13 +208,37 @@ export function createDeepgramSpeechQueue({ signal, onStart, onSession } = {}) {
     }
   }
 
+  const takeNextFetch = () => {
+    if (queue.length === 0) return null
+    const text = queue.shift()
+    return fetchDeepgramBlob(text, abortController.signal)
+  }
+
   const runWorker = async () => {
     if (running || stopped) return
     running = true
 
+    let pendingFetch = takeNextFetch()
+
     try {
-      while (!stopped && !abortController.signal.aborted && queue.length > 0) {
-        const text = queue.shift()
+      while (!stopped && !abortController.signal.aborted && pendingFetch) {
+        let blob
+        try {
+          blob = await pendingFetch
+        } catch (error) {
+          if (error.name === 'AbortError' || stopped || abortController.signal.aborted) {
+            return
+          }
+          settleDone(error)
+          throw error
+        }
+
+        pendingFetch = takeNextFetch()
+
+        if (!blob) {
+          continue
+        }
+
         const session = {
           aborted: false,
           abortController: new AbortController(),
@@ -226,13 +249,15 @@ export function createDeepgramSpeechQueue({ signal, onStart, onSession } = {}) {
         currentSession = session
         onSession?.(session)
 
+        const onPlaybackStart = () => {
+          if (!started) {
+            started = true
+            onStart?.()
+          }
+        }
+
         try {
-          await speakPhrase(text, session, () => {
-            if (!started) {
-              started = true
-              onStart?.()
-            }
-          }, abortController.signal)
+          await playFetchedBlob(blob, session, onPlaybackStart)
         } catch (error) {
           if (error.name === 'AbortError' || stopped || abortController.signal.aborted) {
             return
@@ -245,7 +270,11 @@ export function createDeepgramSpeechQueue({ signal, onStart, onSession } = {}) {
       }
     } finally {
       running = false
-      finishIfReady()
+      if (queue.length > 0 && !stopped && !abortController.signal.aborted) {
+        kickWorker()
+      } else {
+        finishIfReady()
+      }
     }
   }
 
