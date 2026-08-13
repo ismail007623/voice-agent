@@ -23,6 +23,9 @@ const serviceData = [
   ['✚', 'Emergency Support', '24/7 assistance for urgent needs'],
 ]
 const VAD_VOLUME_THRESHOLD = 0.03
+const VAD_BARGE_IN_THRESHOLD = 0.065
+const VAD_BARGE_IN_FRAMES = 12
+const VAD_BARGE_IN_COOLDOWN_MS = 900
 const VAD_SILENCE_TIMEOUT_MS = 1000
 const VAD_MIN_SPEECH_MS = 400
 const MEDIA_RECORDER_TIMESLICE_MS = 250
@@ -938,12 +941,16 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const sessionActive = useRef(false)
   const turnInProgress = useRef(false)
   const ttsSpeaking = useRef(false)
+  const turnGenerationRef = useRef(0)
+  const activeTurnIdRef = useRef(null)
   const agentStateRef = useRef('disconnected')
   const conversationIdRef = useRef(conversationId)
   const beginUserTurnRef = useRef(() => {})
   const finishUserTurnRef = useRef(() => {})
   const tryResumeListeningRef = useRef(() => {})
   const vadLevelFrame = useRef(0)
+  const bargeInFrameCountRef = useRef(0)
+  const bargeInAllowedAfterRef = useRef(0)
 
   const agentConnected = ['listening', 'user_speaking', 'processing', 'speaking'].includes(agentState)
   const agentConnecting = agentState === 'connecting'
@@ -980,6 +987,12 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       vadFrameId.current = null
     }
     clearSilenceTimer()
+    bargeInFrameCountRef.current = 0
+  }
+
+  const markBargeInCooldown = () => {
+    bargeInAllowedAfterRef.current = Date.now() + VAD_BARGE_IN_COOLDOWN_MS
+    bargeInFrameCountRef.current = 0
   }
 
   const canStartTurn = () => {
@@ -1013,6 +1026,24 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
         return
       }
 
+      if (state === 'speaking' && !turnInProgress.current && sessionActive.current) {
+        if (Date.now() < bargeInAllowedAfterRef.current) {
+          bargeInFrameCountRef.current = 0
+        } else if (rms >= VAD_BARGE_IN_THRESHOLD) {
+          bargeInFrameCountRef.current += 1
+          if (bargeInFrameCountRef.current >= VAD_BARGE_IN_FRAMES) {
+            bargeInFrameCountRef.current = 0
+            interruptAssistantResponseRef.current()
+            beginUserTurnRef.current({ bargeIn: true })
+            return
+          }
+        } else {
+          bargeInFrameCountRef.current = 0
+        }
+      } else {
+        bargeInFrameCountRef.current = 0
+      }
+
       if (state === 'user_speaking') {
         if (rms < VAD_VOLUME_THRESHOLD) {
           if (!silenceTimer.current) {
@@ -1026,13 +1057,28 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
         }
       }
 
-      if (state === 'listening' || state === 'user_speaking') {
+      if (state === 'listening' || state === 'user_speaking' || state === 'speaking' || state === 'processing') {
         vadFrameId.current = requestAnimationFrame(tick)
       }
     }
 
     vadFrameId.current = requestAnimationFrame(tick)
   }
+
+  const interruptAssistantResponse = () => {
+    turnGenerationRef.current += 1
+    activeTurnIdRef.current = null
+    abortController.current?.abort()
+    abortController.current = null
+    stopTts()
+    setProcessingMessage('')
+    ttsSpeaking.current = false
+    bargeInFrameCountRef.current = 0
+    bargeInAllowedAfterRef.current = 0
+  }
+
+  const interruptAssistantResponseRef = useRef(interruptAssistantResponse)
+  interruptAssistantResponseRef.current = interruptAssistantResponse
 
   const tryResumeListening = () => {
     if (!sessionActive.current || turnInProgress.current || ttsSpeaking.current) return
@@ -1055,6 +1101,10 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   }
 
   const submitTurn = async (transcript) => {
+    turnGenerationRef.current += 1
+    const generation = turnGenerationRef.current
+    activeTurnIdRef.current = null
+
     syncAgentState('processing')
     setProcessingMessage('Processing…')
     setAssistantText('')
@@ -1069,16 +1119,20 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
     let ttsQueue
     const phraseBuffer = createPhraseBuffer({
-      onPhrase: (phrase) => ttsQueue.enqueue(phrase),
+      onPhrase: (phrase) => {
+        if (generation !== turnGenerationRef.current) return
+        ttsQueue.enqueue(phrase)
+      },
     })
 
     ttsQueue = createDeepgramSpeechQueue({
       signal: ttsController.signal,
       onStart: () => {
+        if (generation !== turnGenerationRef.current) return
         ttsSpeaking.current = true
         syncAgentState('speaking')
-        vadPaused.current = true
-        stopVadLoop()
+        markBargeInCooldown()
+        startVadLoop()
       },
       onSession: (session) => {
         ttsSession.current = session
@@ -1086,18 +1140,32 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     })
     ttsQueueRef.current = ttsQueue
 
+    const isCurrentTurn = (turnId) => {
+      if (generation !== turnGenerationRef.current) return false
+      if (!activeTurnIdRef.current) return true
+      if (!turnId) return true
+      return turnId === activeTurnIdRef.current
+    }
+
     try {
       await streamVoiceAgent(transcript, conversationIdRef.current || null, {
         signal: controller.signal,
         onConversationId: (id) => {
+          if (generation !== turnGenerationRef.current) return
           if (id) setConversationId(id)
         },
-        onTextChunk: (delta) => {
+        onTurnId: (turnId) => {
+          if (generation !== turnGenerationRef.current) return
+          if (turnId) activeTurnIdRef.current = turnId
+        },
+        onTextChunk: (delta, turnId) => {
+          if (!isCurrentTurn(turnId)) return
           setAssistantText((prev) => prev + delta)
           phraseBuffer.append(delta)
         },
       })
 
+      if (generation !== turnGenerationRef.current) return
       if (!sessionActive.current) return
 
       phraseBuffer.flush()
@@ -1122,6 +1190,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
         throw ttsError
       }
 
+      if (generation !== turnGenerationRef.current) return
       if (!sessionActive.current) return
 
       ttsSpeaking.current = false
@@ -1133,6 +1202,7 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       tryResumeListeningRef.current()
     } catch (requestError) {
       if (requestError.name === 'AbortError') return
+      if (generation !== turnGenerationRef.current) return
       if (!sessionActive.current) return
 
       turnInProgress.current = false
@@ -1152,8 +1222,10 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     }
   }
 
-  const beginUserTurn = () => {
-    if (!canStartTurn() || !stream.current) return
+  const beginUserTurn = ({ bargeIn = false } = {}) => {
+    if (!sessionActive.current || !stream.current) return
+    if (!bargeIn && !canStartTurn()) return
+    if (bargeIn && turnInProgress.current) return
 
     clearSilenceTimer()
     stopVadLoop()

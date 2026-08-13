@@ -8,10 +8,17 @@ function voiceAgentUrl() {
   return `${getApiBaseUrl().trim().replace(/\/+$/, '')}/voice-agent`
 }
 
-function handleStreamPayload(payload, { onTextChunk, onConversationId }) {
+function handleStreamPayload(payload, { onTextChunk, onConversationId, onTurnId, onTurnDone }) {
+  const turnId = payload.turn_id || null
+
   if (payload.event) {
     if (payload.conversation_id) {
       onConversationId?.(payload.conversation_id)
+    }
+
+    if (payload.event === 'start') {
+      if (turnId) onTurnId?.(turnId)
+      return
     }
 
     if (payload.event === 'error') {
@@ -19,7 +26,13 @@ function handleStreamPayload(payload, { onTextChunk, onConversationId }) {
     }
 
     if (payload.event === 'chunk' && payload.text) {
-      onTextChunk?.(payload.text)
+      onTextChunk?.(payload.text, turnId)
+      return
+    }
+
+    if (payload.event === 'done') {
+      onTurnDone?.(turnId)
+      return
     }
 
     return
@@ -37,8 +50,12 @@ function handleStreamPayload(payload, { onTextChunk, onConversationId }) {
     onConversationId?.(payload.data.conversation_id)
   }
 
+  if (payload.data?.turn_id) {
+    onTurnId?.(payload.data.turn_id)
+  }
+
   if (payload.data?.text) {
-    onTextChunk?.(payload.data.text)
+    onTextChunk?.(payload.data.text, turnId)
   }
 }
 
@@ -72,7 +89,11 @@ async function readNdjsonStream(response, callbacks) {
   }
 }
 
-export async function streamVoiceAgent(text, conversationId, { signal, onTextChunk, onConversationId } = {}) {
+export async function streamVoiceAgent(
+  text,
+  conversationId,
+  { signal, onTextChunk, onConversationId, onTurnId, onTurnDone } = {},
+) {
   const response = await fetch(voiceAgentUrl(), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,6 +107,11 @@ export async function streamVoiceAgent(text, conversationId, { signal, onTextChu
   const conversationHeader = response.headers.get('X-Conversation-Id')
   if (conversationHeader) {
     onConversationId?.(conversationHeader)
+  }
+
+  const turnHeader = response.headers.get('X-Turn-Id')
+  if (turnHeader) {
+    onTurnId?.(turnHeader)
   }
 
   if (!response.ok) {
@@ -102,7 +128,7 @@ export async function streamVoiceAgent(text, conversationId, { signal, onTextChu
   const contentType = response.headers.get('content-type') || ''
 
   if (contentType.includes('ndjson')) {
-    await readNdjsonStream(response, { onTextChunk, onConversationId })
+    await readNdjsonStream(response, { onTextChunk, onConversationId, onTurnId, onTurnDone })
     return
   }
 
@@ -121,8 +147,12 @@ export async function streamVoiceAgent(text, conversationId, { signal, onTextChu
     onConversationId?.(payload.data.conversation_id)
   }
 
+  if (payload.data.turn_id) {
+    onTurnId?.(payload.data.turn_id)
+  }
+
   if (payload.data.text) {
-    onTextChunk?.(payload.data.text)
+    onTextChunk?.(payload.data.text, payload.data.turn_id || null)
   }
 }
 
