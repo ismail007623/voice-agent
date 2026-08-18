@@ -1175,8 +1175,10 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   gap: 10px;
 }
 .voice-panel-agent .voice-orbit {
-  max-height: min(42vh, 400px);
-  width: min(100%, 420px);
+  --orbit-size: min(100%, 420px, min(42vh, 400px));
+  width: var(--orbit-size);
+  height: var(--orbit-size);
+  max-height: none;
   overflow: visible;
   margin-top: 18px;
 }
@@ -1226,6 +1228,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   pointer-events: none;
   will-change: transform;
 }
+.voice-agent-disconnected .voice-orbit-beacon {
+  transform: none;
+}
 .voice-orbit-beacon i {
   position: absolute;
   top: 13%;
@@ -1241,9 +1246,11 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 }
 .voice-orbit-wave {
   position: absolute;
+  inset: 0;
   z-index: 2;
   width: 178px;
   height: 178px;
+  margin: auto;
   border-radius: 50%;
   pointer-events: none;
 }
@@ -1538,36 +1545,6 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
 .call-end:hover:not(:disabled) {
   background: #fff7f7;
   border-color: #d9a5a9;
-}
-.voice-transcript {
-  width: min(100%, 460px);
-  margin-top: 4px;
-  text-align: left;
-  display: grid;
-  gap: 14px;
-  padding: 0;
-  background: transparent;
-  border: 0;
-}
-.voice-line {
-  margin: 0;
-  display: grid;
-  gap: 4px;
-  font: 400 14px/1.55 var(--agent-font);
-  color: #3d4a5f;
-}
-.voice-line span {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--agent-muted);
-}
-.voice-line-assistant {
-  font-family: var(--agent-display);
-  font-size: 16px;
-  line-height: 1.5;
-  color: var(--agent-ink);
 }
 @keyframes portrait-soft {
   0%, 100% { transform: scale(1); opacity: .85; }
@@ -2174,7 +2151,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   .voice-orbit { width: min(100%, 400px); max-height: 400px; }
   .voice-panel-agent { padding: 10px 16px 14px; }
   .voice-panel-agent .voice-stage { gap: 8px; }
-  .voice-panel-agent .voice-orbit { max-height: min(40vh, 340px); width: min(100%, 380px); }
+  .voice-panel-agent .voice-orbit {
+    --orbit-size: min(100%, 380px, min(40vh, 340px));
+    width: var(--orbit-size);
+    height: var(--orbit-size);
+    max-height: none;
+  }
   .voice-orbit-wave { width: 158px; height: 158px; }
   .voice-orbit-tick { bottom: 69px; }
   .voice-portrait { width: 132px; height: 132px; }
@@ -2195,7 +2177,12 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outlin
   }
   .voice-panel-agent { padding: 8px 14px 12px; }
   .voice-panel-agent .voice-stage { gap: 8px; }
-  .voice-panel-agent .voice-orbit { max-height: min(38vh, 300px); width: min(100%, 320px); }
+  .voice-panel-agent .voice-orbit {
+    --orbit-size: min(100%, 320px, min(38vh, 300px));
+    width: var(--orbit-size);
+    height: var(--orbit-size);
+    max-height: none;
+  }
   .voice-orbit-wave { width: 138px; height: 138px; }
   .voice-orbit-tick { bottom: 60px; }
   .voice-portrait { width: 112px; height: 112px; }

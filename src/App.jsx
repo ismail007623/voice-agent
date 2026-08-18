@@ -761,14 +761,41 @@ function VoiceAgentAvatar({ agentState, vadLevel }) {
     const root = rootRef.current
     if (!root) return
 
-    const context = gsap.context(() => {
-      const steps = [...root.querySelectorAll('.voice-orbit-step')]
-      const nodes = [...root.querySelectorAll('.voice-orbit-node')]
-      const beacon = root.querySelector('.voice-orbit-beacon')
-      const ticks = root.querySelectorAll('.voice-orbit-tick')
-      const portrait = root.querySelector('.voice-portrait')
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const steps = [...root.querySelectorAll('.voice-orbit-step')]
+    const nodes = [...root.querySelectorAll('.voice-orbit-node')]
+    const beacon = root.querySelector('.voice-orbit-beacon')
+    const ticks = [...root.querySelectorAll('.voice-orbit-tick')]
+    const portrait = root.querySelector('.voice-portrait')
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+    const resetOrbit = () => {
+      setActiveStep(0)
+      steps.forEach((step, i) => {
+        step.classList.toggle('is-active', i === 0)
+        step.classList.toggle('is-done', false)
+        step.classList.toggle('is-upcoming', i > 0)
+      })
+
+      const targets = [...nodes, beacon, portrait, ...ticks].filter(Boolean)
+      gsap.killTweensOf(targets)
+      gsap.set(nodes, { scale: 1, clearProps: 'transform' })
+      if (beacon) {
+        gsap.set(beacon, { rotation: 0, transformOrigin: '50% 50%', clearProps: 'transform' })
+      }
+      if (portrait) {
+        gsap.set(portrait, { scale: 1, clearProps: 'transform' })
+      }
+      if (ticks.length) {
+        gsap.set(ticks, { scaleY: 1, clearProps: 'transform' })
+      }
+    }
+
+    if (liveStep === null) {
+      resetOrbit()
+      return
+    }
+
+    const context = gsap.context(() => {
       const applyStep = (index, { pulse = true } = {}) => {
         setActiveStep(index)
         steps.forEach((step, i) => {
@@ -819,21 +846,7 @@ function VoiceAgentAvatar({ agentState, vadLevel }) {
         })
       }
 
-      if (liveStep !== null) {
-        applyStep(liveStep, { pulse: agentState !== 'connecting' })
-        return
-      }
-
-      if (reduceMotion) {
-        applyStep(0, { pulse: false })
-        return
-      }
-
-      const timeline = gsap.timeline({ repeat: -1, defaults: { ease: 'power1.inOut' } })
-      chatOrbitSteps.forEach((step, index) => {
-        timeline.add(() => applyStep(index, { pulse: true }))
-        timeline.to({}, { duration: index === chatOrbitSteps.length - 1 ? 1.1 : 1.35 })
-      })
+      applyStep(liveStep, { pulse: agentState !== 'connecting' })
     }, root)
 
     return () => context.revert()
@@ -919,8 +932,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   const [agentState, setAgentState] = useState('disconnected')
   const [error, setError] = useState('')
   const [processingMessage, setProcessingMessage] = useState('')
-  const [userTranscript, setUserTranscript] = useState('')
-  const [assistantText, setAssistantText] = useState('')
   const [vadLevel, setVadLevel] = useState(0)
 
   const stream = useRef(null)
@@ -970,8 +981,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
   const resetMessageUi = () => {
     setProcessingMessage('')
-    setUserTranscript('')
-    setAssistantText('')
   }
 
   const clearSilenceTimer = () => {
@@ -1107,7 +1116,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
 
     syncAgentState('processing')
     setProcessingMessage('Processing…')
-    setAssistantText('')
 
     abortController.current?.abort()
     const controller = new AbortController()
@@ -1160,7 +1168,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
         },
         onTextChunk: (delta, turnId) => {
           if (!isCurrentTurn(turnId)) return
-          setAssistantText((prev) => prev + delta)
           phraseBuffer.append(delta)
         },
       })
@@ -1171,7 +1178,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
       phraseBuffer.flush()
       ttsQueue.flush()
 
-      setUserTranscript(transcript)
       setProcessingMessage('')
       setError('')
 
@@ -1234,8 +1240,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
     speechStartTime.current = Date.now()
     recordingChunks.current = []
     setError('')
-    setUserTranscript('')
-    setAssistantText('')
 
     try {
       speechRecognizer.current = createSpeechRecognizer({ lang: 'en-US' })
@@ -1435,7 +1439,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
   }, [setConversationId])
 
   const voiceStatus = getVoiceStatus(agentState, processingMessage, error)
-  const showTranscript = Boolean(userTranscript || assistantText)
 
   return (
     <PageShell page="chat" goTo={goTo}>
@@ -1486,22 +1489,6 @@ function VoiceChat({ goTo, addHistory, conversationId, setConversationId, startN
               <span>End Session</span>
             </button>
           </div>
-          {showTranscript && (
-            <div className="voice-transcript">
-              {userTranscript && (
-                <p className="voice-line voice-line-user">
-                  <span>You</span>
-                  {userTranscript}
-                </p>
-              )}
-              {assistantText && (
-                <p className="voice-line voice-line-assistant">
-                  <span>Assistant</span>
-                  {assistantText}
-                </p>
-              )}
-            </div>
-          )}
           <p className="voice-privacy"><Ic name="shield" /> Your conversation is secure and private</p>
         </div>
       </section>
