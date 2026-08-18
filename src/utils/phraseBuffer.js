@@ -1,7 +1,7 @@
-const CLAUSE_MIN = 18
-const FIRST_PHRASE_MIN = 12
-const HARD_CAP = 120
-const FLUSH_DELAY_MS = 350
+const CLAUSE_MIN = 45
+const FIRST_PHRASE_MIN = 20
+const HARD_CAP = 200
+const FLUSH_DELAY_MS = 500
 
 const SENTENCE_PATTERN = /^([\s\S]*?[.!?])(?:\s+|$)/
 
